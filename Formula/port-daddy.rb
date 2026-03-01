@@ -1,8 +1,8 @@
 class PortDaddy < Formula
   desc "Authoritative port assignment service for multi-agent development environments"
   homepage "https://github.com/erichowens/port-daddy"
-  url "https://github.com/erichowens/port-daddy/archive/refs/tags/v1.2.0.tar.gz"
-  sha256 "92149f7a9f003e08beb33d42bac0d2c8f2f89bed8cf8b3276ba4f9acde978cba"
+  url "https://github.com/erichowens/port-daddy/archive/refs/tags/v3.3.0.tar.gz"
+  sha256 "09b6f02c28651ebb5a27931c2f3cf3b235add929be1952866ccb22f029be3a66"
   license "MIT"
 
   depends_on "node"
@@ -13,9 +13,10 @@ class PortDaddy < Formula
   end
 
   def post_install
-    ohai "Port Daddy installed!"
-    ohai "To start the daemon: port-daddy install"
-    ohai "To get a port: get-port my-project"
+    ohai "Port Daddy v#{version} installed!"
+    ohai "Start daemon: port-daddy start"
+    ohai "Claim a port: pd claim my-project"
+    ohai "Dashboard: http://localhost:9876"
   end
 
   service do
@@ -27,8 +28,6 @@ class PortDaddy < Formula
   end
 
   test do
-    # Test that CLI tools exist
-    assert_match "Usage:", shell_output("#{bin}/get-port 2>&1", 1)
-    assert_match "Usage:", shell_output("#{bin}/release-port 2>&1", 1)
+    assert_match "port-daddy", shell_output("#{bin}/port-daddy --version 2>&1")
   end
 end
