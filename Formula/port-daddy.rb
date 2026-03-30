@@ -1,8 +1,9 @@
+
 class PortDaddy < Formula
-  desc "Authoritative port assignment service for multi-agent development environments"
-  homepage "https://github.com/erichowens/port-daddy"
-  url "https://github.com/erichowens/port-daddy/archive/refs/tags/v3.3.0.tar.gz"
-  sha256 "09b6f02c28651ebb5a27931c2f3cf3b235add929be1952866ccb22f029be3a66"
+  desc "Authoritative port manager for multi-agent development"
+  homepage "https://github.com/curiositech/port-daddy"
+  url "https://github.com/curiositech/port-daddy/archive/refs/tags/v3.8.1.tar.gz"
+  sha256 "4138fb41536eadef97783896664aa4c4e416ca00c0f31a0e63814ded25979db9"
   license "MIT"
 
   depends_on "node"
@@ -14,9 +15,9 @@ class PortDaddy < Formula
 
   def post_install
     ohai "Port Daddy v#{version} installed!"
-    ohai "Start daemon: port-daddy start"
-    ohai "Claim a port: pd claim my-project"
-    ohai "Dashboard: http://localhost:9876"
+    ohai "Start daemon: pd start"
+    ohai "Quick start:  pd begin --identity myapp:api --purpose \"my first session\""
+    ohai "Dashboard:    http://localhost:9876"
   end
 
   service do
