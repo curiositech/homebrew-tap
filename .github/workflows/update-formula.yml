@@ -1,0 +1,93 @@
+name: Update formula
+
+on:
+  repository_dispatch:
+    types: [update-formula]
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version
+        id: vars
+        env:
+          PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          VERSION="${PAYLOAD_VERSION#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${PAYLOAD_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Download binaries and compute sha256
+        id: sha
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          TAG: ${{ steps.vars.outputs.tag }}
+        run: |
+          BASE="https://github.com/curiositech/port-daddy/releases/download/${TAG}"
+
+          curl -fsSL "${BASE}/pd-darwin-arm64.tar.gz" -o arm64.tar.gz
+          ARM64=$(sha256sum arm64.tar.gz | awk '{print $1}')
+
+          curl -fsSL "${BASE}/pd-darwin-x64.tar.gz" -o x64.tar.gz
+          X64=$(sha256sum x64.tar.gz | awk '{print $1}')
+
+          curl -fsSL "${BASE}/pd-linux-x64.tar.gz" -o linux.tar.gz
+          LINUX=$(sha256sum linux.tar.gz | awk '{print $1}')
+
+          echo "arm64=${ARM64}" >> "$GITHUB_OUTPUT"
+          echo "x64=${X64}" >> "$GITHUB_OUTPUT"
+          echo "linux=${LINUX}" >> "$GITHUB_OUTPUT"
+
+      - name: Update formula
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          ARM64: ${{ steps.sha.outputs.arm64 }}
+          X64: ${{ steps.sha.outputs.x64 }}
+          LINUX: ${{ steps.sha.outputs.linux }}
+        run: |
+          FORMULA="Formula/port-daddy.rb"
+
+          # Update version
+          sed -i "s/version \"[^\"]*\"/version \"${VERSION}\"/" "$FORMULA"
+
+          # Update sha256 placeholders / previous values
+          # Replacement is line-specific: arm64 comes first in the file
+          python3 - <<'PYEOF'
+import os, re
+
+formula = open("Formula/port-daddy.rb").read()
+version = os.environ["VERSION"]
+arm64   = os.environ["ARM64"]
+x64     = os.environ["X64"]
+linux   = os.environ["LINUX"]
+
+# Replace sha256 values for each platform block using a simple sequential approach
+def replace_nth_sha(text, n, new_sha):
+    matches = list(re.finditer(r'sha256 "[a-fA-F0-9]+"', text))
+    if len(matches) < n:
+        matches = list(re.finditer(r'sha256 "PLACEHOLDER_[A-Z0-9_]+"', text))
+    if len(matches) < n:
+        return text
+    m = matches[n - 1]
+    return text[:m.start()] + f'sha256 "{new_sha}"' + text[m.end():]
+
+formula = replace_nth_sha(formula, 1, arm64)   # darwin-arm64
+formula = replace_nth_sha(formula, 2, x64)     # darwin-x64
+formula = replace_nth_sha(formula, 3, linux)   # linux-x64
+
+open("Formula/port-daddy.rb", "w").write(formula)
+PYEOF
+
+      - name: Commit and push
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/port-daddy.rb
+          git commit -m "chore: bump port-daddy to v${VERSION}"
+          git push
