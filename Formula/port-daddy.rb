@@ -35,7 +35,10 @@ class PortDaddy < Formula
   end
 
   service do
-    run [opt_bin/"pd", "start"]
+    # `--foreground` runs the daemon in-process so `brew services` supervises
+    # the daemon PID directly. Without it, `pd start` re-execs itself detached
+    # and exits, leaving brew-services thinking the service died.
+    run [opt_bin/"pd", "start", "--foreground"]
     keep_alive true
     working_dir var/"port-daddy"
     log_path var/"log/port-daddy.log"
