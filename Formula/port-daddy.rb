@@ -38,6 +38,12 @@ class PortDaddy < Formula
     working_dir var/"port-daddy"
     log_path var/"log/port-daddy.log"
     error_log_path var/"log/port-daddy.log"
+    # Without these, the bun-compiled binary's __dirname resolves inside
+    # /opt/homebrew/Cellar/port-daddy/<version>/bin and the DB lands inside
+    # the version-pinned Cellar dir — the next `brew upgrade` deletes it.
+    # Pin the DB and runtime home under var/ so they survive upgrades.
+    environment_variables PORT_DADDY_DB:   var/"port-daddy/port-registry.db",
+                          PORT_DADDY_HOME: var/"port-daddy"
   end
 
   test do
