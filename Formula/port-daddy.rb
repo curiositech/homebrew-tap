@@ -1,25 +1,20 @@
 class PortDaddy < Formula
   desc "Authoritative port manager for multi-agent development"
   homepage "https://github.com/curiositech/port-daddy"
-  version "3.8.2"
+  version "3.14.1"
   license "MIT"
 
   on_macos do
     on_arm do
       url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-darwin-arm64.tar.gz"
-      sha256 "PLACEHOLDER_DARWIN_ARM64"
-    end
-
-    on_intel do
-      url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-darwin-x64.tar.gz"
-      sha256 "PLACEHOLDER_DARWIN_X64"
+      sha256 "2c1bb7361b69c3d8c06b557a9a99f4d007e7454ce48b0fb310d43bf3b109608a"
     end
   end
 
   on_linux do
     on_intel do
       url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-linux-x64.tar.gz"
-      sha256 "PLACEHOLDER_LINUX_X64"
+      sha256 "d1a1263b32db608e87a9ebcb0fb82a63609bc89d13404fbb0e1661ab5776787b"
     end
   end
 
@@ -29,7 +24,7 @@ class PortDaddy < Formula
 
   def post_install
     ohai "Port Daddy v#{version} installed!"
-    ohai "Start daemon:  pd start"
+    ohai "Start daemon:  brew services start port-daddy"
     ohai "Quick start:   pd begin --identity myapp:api --purpose \"my first session\""
     ohai "Dashboard:     http://localhost:9876"
   end
