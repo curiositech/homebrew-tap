@@ -32,21 +32,16 @@ jobs:
           curl -fsSL "${BASE}/pd-darwin-arm64.tar.gz" -o arm64.tar.gz
           ARM64=$(sha256sum arm64.tar.gz | awk '{print $1}')
 
-          curl -fsSL "${BASE}/pd-darwin-x64.tar.gz" -o x64.tar.gz
-          X64=$(sha256sum x64.tar.gz | awk '{print $1}')
-
           curl -fsSL "${BASE}/pd-linux-x64.tar.gz" -o linux.tar.gz
           LINUX=$(sha256sum linux.tar.gz | awk '{print $1}')
 
           echo "arm64=${ARM64}" >> "$GITHUB_OUTPUT"
-          echo "x64=${X64}" >> "$GITHUB_OUTPUT"
           echo "linux=${LINUX}" >> "$GITHUB_OUTPUT"
 
       - name: Update formula
         env:
           VERSION: ${{ steps.vars.outputs.version }}
           ARM64: ${{ steps.sha.outputs.arm64 }}
-          X64: ${{ steps.sha.outputs.x64 }}
           LINUX: ${{ steps.sha.outputs.linux }}
         run: |
           FORMULA="Formula/port-daddy.rb"
@@ -54,33 +49,38 @@ jobs:
           # Update version
           sed -i "s/version \"[^\"]*\"/version \"${VERSION}\"/" "$FORMULA"
 
-          # Update sha256 placeholders / previous values
-          # Replacement is line-specific: arm64 comes first in the file
+          # Update sha256 placeholders / previous values.
+          # Body of the heredoc MUST be indented at the YAML literal-block
+          # indent level (10 spaces here) so the surrounding `run: |` keeps
+          # parsing. Without that, YAML treats the first column-0 line as a
+          # block exit and the whole workflow file fails to parse — which is
+          # how this file shipped broken for three days, with every
+          # repository_dispatch silently dropped.
           python3 - <<'PYEOF'
-import os, re
+          import os, re
 
-formula = open("Formula/port-daddy.rb").read()
-version = os.environ["VERSION"]
-arm64   = os.environ["ARM64"]
-x64     = os.environ["X64"]
-linux   = os.environ["LINUX"]
+          formula = open("Formula/port-daddy.rb").read()
+          arm64 = os.environ["ARM64"]
+          linux = os.environ["LINUX"]
 
-# Replace sha256 values for each platform block using a simple sequential approach
-def replace_nth_sha(text, n, new_sha):
-    matches = list(re.finditer(r'sha256 "[a-fA-F0-9]+"', text))
-    if len(matches) < n:
-        matches = list(re.finditer(r'sha256 "PLACEHOLDER_[A-Z0-9_]+"', text))
-    if len(matches) < n:
-        return text
-    m = matches[n - 1]
-    return text[:m.start()] + f'sha256 "{new_sha}"' + text[m.end():]
+          # The formula only has two sha256 lines (darwin-arm64 then linux-x64).
+          # darwin-x64 was dropped from the release matrix on 2026-05-22 because
+          # macos-13 GHA runners routinely wedge for 24h. Don't touch a third
+          # match; there isn't one.
+          def replace_nth_sha(text, n, new_sha):
+              matches = list(re.finditer(r'sha256 "[a-fA-F0-9]+"', text))
+              if len(matches) < n:
+                  matches = list(re.finditer(r'sha256 "PLACEHOLDER_[A-Z0-9_]+"', text))
+              if len(matches) < n:
+                  return text
+              m = matches[n - 1]
+              return text[:m.start()] + f'sha256 "{new_sha}"' + text[m.end():]
 
-formula = replace_nth_sha(formula, 1, arm64)   # darwin-arm64
-formula = replace_nth_sha(formula, 2, x64)     # darwin-x64
-formula = replace_nth_sha(formula, 3, linux)   # linux-x64
+          formula = replace_nth_sha(formula, 1, arm64)   # darwin-arm64
+          formula = replace_nth_sha(formula, 2, linux)   # linux-x64
 
-open("Formula/port-daddy.rb", "w").write(formula)
-PYEOF
+          open("Formula/port-daddy.rb", "w").write(formula)
+          PYEOF
 
       - name: Commit and push
         env:
