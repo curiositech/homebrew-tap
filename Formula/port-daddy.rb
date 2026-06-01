@@ -1,20 +1,20 @@
 class PortDaddy < Formula
   desc "Authoritative port manager for multi-agent development"
   homepage "https://github.com/curiositech/port-daddy"
-  version "3.16.0"
+  version "3.16.1"
   license "MIT"
 
   on_macos do
     on_arm do
       url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-darwin-arm64.tar.gz"
-      sha256 "c0f7767850f01534ff09fa2e6f068d335cc1f1e50956a1cf893c667d5ed9ed34"
+      sha256 "c3fce146fff4e35b482887f96381d0e92ff0b25498fd3da69cb3c44f5825e7d2"
     end
   end
 
   on_linux do
     on_intel do
       url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-linux-x64.tar.gz"
-      sha256 "5456178db0464f9df4b339cae0a0b0da9c3545f35c1b5bf87e9c1431476455cb"
+      sha256 "65925b8f1e795e756b6a7974b9d84a39cf104f62ab49ed182e0a9fb901d00321"
     end
   end
 
