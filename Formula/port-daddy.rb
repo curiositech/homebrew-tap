@@ -19,7 +19,7 @@ class PortDaddy < Formula
   end
 
   def install
-    bin.install "pd"
+    bin.install "pd", "port-daddy"
   end
 
   def post_install
