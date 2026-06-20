@@ -35,8 +35,19 @@ jobs:
           curl -fsSL "${BASE}/pd-linux-x64.tar.gz" -o linux.tar.gz
           LINUX=$(sha256sum linux.tar.gz | awk '{print $1}')
 
+          # pd-console.app — only present from the release that first shipped the
+          # build-pd-console-app job (#493). Tolerate its absence so older / daemon-
+          # only releases still roll the formula instead of failing the whole run.
+          if curl -fsSL "${BASE}/PortDaddy-Console-macOS-arm64.zip" -o console.zip; then
+            CONSOLE=$(sha256sum console.zip | awk '{print $1}')
+          else
+            CONSOLE=""
+            echo "::notice::no pd-console.app in ${TAG} — skipping cask refresh"
+          fi
+
           echo "arm64=${ARM64}" >> "$GITHUB_OUTPUT"
           echo "linux=${LINUX}" >> "$GITHUB_OUTPUT"
+          echo "console=${CONSOLE}" >> "$GITHUB_OUTPUT"
 
       - name: Update formula
         env:
@@ -82,12 +93,26 @@ jobs:
           open("Formula/port-daddy.rb", "w").write(formula)
           PYEOF
 
+      - name: Update console cask
+        if: steps.sha.outputs.console != ''
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          CONSOLE: ${{ steps.sha.outputs.console }}
+        run: |
+          CASK="Casks/port-daddy-console.rb"
+          # The cask has exactly one version line and one sha256 line — a plain
+          # sed is sufficient (no nth-match dance like the formula).
+          sed -i "s/version \"[^\"]*\"/version \"${VERSION}\"/" "$CASK"
+          sed -i "s/sha256 \"[^\"]*\"/sha256 \"${CONSOLE}\"/" "$CASK"
+
       - name: Commit and push
         env:
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/port-daddy.rb
-          git commit -m "chore: bump port-daddy to v${VERSION}"
+          git add Formula/port-daddy.rb Casks/port-daddy-console.rb
+          # Casks/ only changes on releases that shipped a console .app; commit
+          # whatever is staged, and no-op cleanly if nothing changed.
+          git diff --cached --quiet || git commit -m "chore: bump port-daddy to v${VERSION}"
           git push
