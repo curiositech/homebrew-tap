@@ -12,9 +12,15 @@ cask "port-daddy-console" do
   depends_on macos: ">= :monterey"
   depends_on arch: :arm64
 
-  app "pd-console.app"
+  # The release artifact is pd-console.app (port-daddy's check-version-drift.mjs
+  # --deep reads it by that name). Install it under the PROD lane name so it never
+  # collides with a locally-built pd-console-latest.app (main) or a
+  # pd-console_dev-<name>.app (worktree) — see port-daddy AGENTS.md "build LANES".
+  # The shipped icon is the prod look: blue frame + vX.Y.Z badge.
+  app "pd-console.app", target: "pd-console-prod.app"
 
   zap trash: [
+    "~/Applications/pd-console-prod.app",
     "~/Library/Application Support/dev.portdaddy.console",
     "~/Library/Preferences/dev.portdaddy.console.plist",
     "~/Library/Saved Application State/dev.portdaddy.console.savedState",
