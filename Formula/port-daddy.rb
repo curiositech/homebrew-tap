@@ -3,6 +3,7 @@ class PortDaddy < Formula
   homepage "https://github.com/curiositech/port-daddy"
   version "3.24.1"
   license "MIT"
+  revision 1
 
   on_macos do
     on_arm do
@@ -42,8 +43,15 @@ class PortDaddy < Formula
     # /opt/homebrew/Cellar/port-daddy/<version>/bin and the DB lands inside
     # the version-pinned Cellar dir — the next `brew upgrade` deletes it.
     # Pin the DB and runtime home under var/ so they survive upgrades.
-    environment_variables PORT_DADDY_DB:   var/"port-daddy/port-registry.db",
-                          PORT_DADDY_HOME: var/"port-daddy"
+    # Match install-daemon.ts safe-mode defaults for the Bun 1.2.21 JSC native
+    # crash family seen under production-shaped daemon load. This trades some
+    # throughput for removing concurrent GC/JIT from the always-on control-plane
+    # process; set PORT_DADDY_JSC_SAFE_MODE=0 only for targeted local testing.
+    environment_variables PORT_DADDY_DB:            var/"port-daddy/port-registry.db",
+                          PORT_DADDY_HOME:          var/"port-daddy",
+                          PORT_DADDY_NO_FLEET:      "1",
+                          BUN_JSC_useConcurrentGC:  "0",
+                          BUN_JSC_useConcurrentJIT: "0"
   end
 
   test do
