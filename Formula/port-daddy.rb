@@ -3,7 +3,7 @@ class PortDaddy < Formula
   homepage "https://github.com/curiositech/port-daddy"
   version "3.25.1"
   license "MIT"
-  revision 1
+  revision 2
 
   on_macos do
     on_arm do
@@ -20,7 +20,13 @@ class PortDaddy < Formula
   end
 
   def install
-    bin.install "pd", "port-daddy"
+    # pd-bosun (ADR-0036) is the daemon's out-of-process watchdog — the
+    # 2026-07-14 daemon-down-hard-stop mandate requires it ship alongside the
+    # daemon so a killed/wedged process gets restarted instead of silently
+    # staying dead. release.yml packages it into the same tarball as pd/
+    # port-daddy (PR #2381); installing it here is what actually makes it
+    # part of the brew keg instead of being dropped on the floor.
+    bin.install "pd", "port-daddy", "pd-bosun"
   end
 
   def post_install
@@ -28,6 +34,23 @@ class PortDaddy < Formula
     ohai "Start daemon:  brew services start port-daddy"
     ohai "Quick start:   pd begin --identity myapp:api --purpose \"my first session\""
     ohai "Dashboard:     http://localhost:9876"
+
+    # Wire the Bosun watchdog against the brew-managed daemon label
+    # (homebrew.mxcl.port-daddy). `install-bosun` (port-daddy >= 3.25.1) is
+    # deliberately narrower than the full `port-daddy install`: it only ever
+    # touches the Bosun + freshness launchd jobs, never the main daemon plist,
+    # so it is safe to call here regardless of whether `brew services start
+    # port-daddy` has run yet — the full `install` path would otherwise race
+    # brew's own service for :9876 if called before that (post_install always
+    # runs before the operator's first `brew services start`, and Homebrew
+    # restarts an already-running service AFTER this hook, not before).
+    # Best-effort: a failure here must never fail the whole brew install/
+    # upgrade — the daemon itself is unaffected either way.
+    Kernel.system(bin/"port-daddy", "install-bosun")
+    unless $?&.success?
+      opoo "Bosun watchdog install did not complete cleanly — daemon crashes " \
+           "won't auto-restart until you run `port-daddy install-bosun` by hand."
+    end
   end
 
   service do
