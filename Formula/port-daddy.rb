@@ -5,7 +5,7 @@ class PortDaddy < Formula
   homepage "https://github.com/curiositech/port-daddy"
   version "3.27.0"
   license "MIT"
-  revision 2
+  revision 3
 
   on_macos do
     on_arm do
@@ -41,7 +41,7 @@ class PortDaddy < Formula
     # run from a fresh `tar -xzf <artifact>.tar.gz` extraction directory.
     known_tarball_manifest_sha256 =
       "756d34d98e494171139b1fea09874f01f78c0134a4d6faf6ef6afadfa178b366"
-    actual_entries = Dir.glob("*").sort
+    actual_entries = Dir.glob("*")
     actual_hash = Digest::SHA256.hexdigest(actual_entries.join(","))
     if actual_hash != known_tarball_manifest_sha256
       odie <<~EOS
@@ -106,8 +106,7 @@ class PortDaddy < Formula
     # restarts an already-running service AFTER this hook, not before).
     # Best-effort: a failure here must never fail the whole brew install/
     # upgrade — the daemon itself is unaffected either way.
-    Kernel.system(bin/"port-daddy", "install-bosun")
-    unless $?&.success?
+    unless Kernel.system(bin/"port-daddy", "install-bosun")
       opoo "Bosun watchdog install did not complete cleanly — daemon crashes " \
            "won't auto-restart until you run `port-daddy install-bosun` by hand."
     end
