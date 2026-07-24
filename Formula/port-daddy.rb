@@ -1,3 +1,5 @@
+require "digest"
+
 class PortDaddy < Formula
   desc "Authoritative port manager for multi-agent development"
   homepage "https://github.com/curiositech/port-daddy"
@@ -20,13 +22,71 @@ class PortDaddy < Formula
   end
 
   def install
+    # SELF-VERIFYING TARBALL GATE (operator-directed, 2026-07-23): every
+    # prior addition to what ships in the release tarball (pd-bosun #2381,
+    # native/ onnxruntime dylib #3561, squid tentacles #3628) shipped in the
+    # tarball but was silently NEVER installed into the keg — install() only
+    # ever copies what someone remembered to list, so a new top-level
+    # tarball entry can go unshipped for weeks with nothing failing loudly.
+    # This hash pins the exact sorted, comma-joined list of top-level
+    # tarball entries this Formula has been reviewed against. If
+    # release.yml's tar command ever adds/removes/renames a top-level entry,
+    # this stops matching and the build fails HERE, loudly, instead of
+    # silently dropping a file on the floor.
+    #
+    # To fix a mismatch: read the printed actual entry list below, decide
+    # how the new/changed entry should be installed, update install() for
+    # it, then recompute the hash — e.g.
+    #   ruby -rdigest -e 'puts Digest::SHA256.hexdigest(Dir.glob("*").sort.join(","))'
+    # run from a fresh `tar -xzf <artifact>.tar.gz` extraction directory.
+    known_tarball_manifest_sha256 =
+      "756d34d98e494171139b1fea09874f01f78c0134a4d6faf6ef6afadfa178b366"
+    actual_entries = Dir.glob("*").sort
+    actual_hash = Digest::SHA256.hexdigest(actual_entries.join(","))
+    if actual_hash != known_tarball_manifest_sha256
+      odie <<~EOS
+        Release tarball's top-level contents changed and Formula/port-daddy.rb's
+        install() was never updated for it — failing closed instead of silently
+        dropping a new file (see PR #3628 / #3561, which this gate exists to
+        stop recurring).
+          expected sha256: #{known_tarball_manifest_sha256}
+          actual entries:  #{actual_entries.join(", ")}
+          actual sha256:   #{actual_hash}
+        Update install() to explicitly handle every entry above, then recompute
+        the hash from a fresh tarball extraction.
+      EOS
+    end
+
     # pd-bosun (ADR-0036) is the daemon's out-of-process watchdog — the
     # 2026-07-14 daemon-down-hard-stop mandate requires it ship alongside the
     # daemon so a killed/wedged process gets restarted instead of silently
     # staying dead. release.yml packages it into the same tarball as pd/
     # port-daddy (PR #2381); installing it here is what actually makes it
     # part of the brew keg instead of being dropped on the floor.
-    bin.install "pd", "port-daddy", "pd-bosun"
+    #
+    # native/ (port-daddy #3561) ships onnxruntime-node's runtime library
+    # (libonnxruntime.*.dylib / libonnxruntime.so.1) as a real sibling file
+    # of the pd/port-daddy binaries. bun build --compile extracts the .node
+    # N-API binding at runtime but drops this @rpath-linked sibling, so
+    # lib/semantic-resolver.ts points DYLD_FALLBACK_LIBRARY_PATH /
+    # LD_LIBRARY_PATH at dirname(process.execPath)/native/onnxruntime-node/
+    # <platform>-<arch> before loading the embedding model — which resolves
+    # to <keg>/bin/native here, hence bin.install (not prefix.install).
+    #
+    # pd-hook-prompt / pd-hook-pre-tool / pd-hook-post-tool (port-daddy
+    # #3628, ADR-0091 Giant Squid Harness) are the UserPromptSubmit /
+    # PreToolUse / PostToolUse tentacle scripts `pd squid hooks` wires into
+    # Claude Code / Codex / Gemini config. release.yml has packaged them
+    # into the tarball since #3628, but nothing ever installed them into the
+    # keg until this fix — every install/upgrade since #3628 shipped left
+    # `pd squid hooks` failing with "missing tentacle binary".
+    bin.install "pd", "port-daddy", "pd-bosun", "native",
+                "pd-hook-prompt", "pd-hook-pre-tool", "pd-hook-post-tool"
+
+    # port-daddy-manifest.json is build metadata (binary sha256/size and
+    # smoke-test results) consumed at release-verification time, not
+    # something the daemon or CLI reads at runtime — intentionally not
+    # installed into the keg.
   end
 
   def post_install
