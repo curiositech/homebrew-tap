@@ -5,7 +5,7 @@ class PortDaddy < Formula
   homepage "https://github.com/curiositech/port-daddy"
   version "3.27.0"
   license "MIT"
-  revision 3
+  revision 4
 
   on_macos do
     on_arm do
@@ -23,10 +23,9 @@ class PortDaddy < Formula
 
   def install
     # SELF-VERIFYING TARBALL GATE (operator-directed, 2026-07-23): every
-    # prior addition to what ships in the release tarball (pd-bosun #2381,
-    # native/ onnxruntime dylib #3561, squid tentacles #3628) shipped in the
-    # tarball but was silently NEVER installed into the keg — install() only
-    # ever copies what someone remembered to list, so a new top-level
+    # prior addition to what ships in the release tarball could land there but
+    # never be installed into the keg — install() only copies what someone
+    # remembered to list, so a new top-level
     # tarball entry can go unshipped for weeks with nothing failing loudly.
     # This hash pins the exact sorted, comma-joined list of top-level
     # tarball entries this Formula has been reviewed against. If
@@ -39,16 +38,22 @@ class PortDaddy < Formula
     # it, then recompute the hash — e.g.
     #   ruby -rdigest -e 'puts Digest::SHA256.hexdigest(Dir.glob("*").sort.join(","))'
     # run from a fresh `tar -xzf <artifact>.tar.gz` extraction directory.
-    known_tarball_manifest_sha256 =
+    legacy_tarball_manifest_sha256 =
       "756d34d98e494171139b1fea09874f01f78c0134a4d6faf6ef6afadfa178b366"
-    actual_entries = Dir.glob("*")
+    single_supervisor_manifest_sha256 =
+      "512cabbb14330d6acdb037c1b02b71dc5b897ab9752bdb801f37ad76f0e958f2"
+    known_tarball_manifest_sha256 = if version >= Version.new("3.28.0")
+      single_supervisor_manifest_sha256
+    else
+      legacy_tarball_manifest_sha256
+    end
+    actual_entries = Dir.children(".").sort
     actual_hash = Digest::SHA256.hexdigest(actual_entries.join(","))
     if actual_hash != known_tarball_manifest_sha256
       odie <<~EOS
         Release tarball's top-level contents changed and Formula/port-daddy.rb's
         install() was never updated for it — failing closed instead of silently
-        dropping a new file (see PR #3628 / #3561, which this gate exists to
-        stop recurring).
+        dropping a new file.
           expected sha256: #{known_tarball_manifest_sha256}
           actual entries:  #{actual_entries.join(", ")}
           actual sha256:   #{actual_hash}
@@ -57,13 +62,6 @@ class PortDaddy < Formula
       EOS
     end
 
-    # pd-bosun (ADR-0036) is the daemon's out-of-process watchdog — the
-    # 2026-07-14 daemon-down-hard-stop mandate requires it ship alongside the
-    # daemon so a killed/wedged process gets restarted instead of silently
-    # staying dead. release.yml packages it into the same tarball as pd/
-    # port-daddy (PR #2381); installing it here is what actually makes it
-    # part of the brew keg instead of being dropped on the floor.
-    #
     # native/ (port-daddy #3561) ships onnxruntime-node's runtime library
     # (libonnxruntime.*.dylib / libonnxruntime.so.1) as a real sibling file
     # of the pd/port-daddy binaries. bun build --compile extracts the .node
@@ -73,15 +71,19 @@ class PortDaddy < Formula
     # <platform>-<arch> before loading the embedding model — which resolves
     # to <keg>/bin/native here, hence bin.install (not prefix.install).
     #
-    # pd-hook-prompt / pd-hook-pre-tool / pd-hook-post-tool (port-daddy
-    # #3628, ADR-0091 Giant Squid Harness) are the UserPromptSubmit /
-    # PreToolUse / PostToolUse tentacle scripts `pd squid hooks` wires into
-    # Claude Code / Codex / Gemini config. release.yml has packaged them
-    # into the tarball since #3628, but nothing ever installed them into the
-    # keg until this fix — every install/upgrade since #3628 shipped left
-    # `pd squid hooks` failing with "missing tentacle binary".
-    bin.install "pd", "port-daddy", "pd-bosun", "native",
-                "pd-hook-prompt", "pd-hook-pre-tool", "pd-hook-post-tool"
+    bin.install "pd", "port-daddy", "native"
+
+    if version >= Version.new("3.28.0")
+      # Keep one directory-preserving runtime layout from archive to keg. The
+      # CLI resolves hooks, public skill content, and canonical Pilot sources
+      # from pkgshare; none of these implementation assets belongs on PATH.
+      pkgshare.install "bin", "hooks", "skills", "agents"
+    else
+      # Compatibility for the published 3.27 archive only. Its harness scripts
+      # were top-level files and it still carried the retired watchdog.
+      bin.install "pd-hook-prompt", "pd-hook-pre-tool", "pd-hook-post-tool",
+                  "pd-bosun"
+    end
 
     # port-daddy-manifest.json is build metadata (binary sha256/size and
     # smoke-test results) consumed at release-verification time, not
@@ -91,24 +93,34 @@ class PortDaddy < Formula
 
   def post_install
     ohai "Port Daddy v#{version} installed!"
-    ohai "Start daemon:  brew services start port-daddy"
-    ohai "Quick start:   pd begin --identity myapp:api --purpose \"my first session\""
-    ohai "Dashboard:     http://localhost:9876"
+    ohai "Homebrew is the sole Port Daddy daemon supervisor."
+    ohai "Open FleetBar for daemon health, restart, and the published dashboard endpoint."
 
-    # Wire the Bosun watchdog against the brew-managed daemon label
-    # (homebrew.mxcl.port-daddy). `install-bosun` (port-daddy >= 3.25.1) is
-    # deliberately narrower than the full `port-daddy install`: it only ever
-    # touches the Bosun + freshness launchd jobs, never the main daemon plist,
-    # so it is safe to call here regardless of whether `brew services start
-    # port-daddy` has run yet — the full `install` path would otherwise race
-    # brew's own service for :9876 if called before that (post_install always
-    # runs before the operator's first `brew services start`, and Homebrew
-    # restarts an already-running service AFTER this hook, not before).
-    # Best-effort: a failure here must never fail the whole brew install/
-    # upgrade — the daemon itself is unaffected either way.
-    unless Kernel.system(bin/"port-daddy", "install-bosun")
-      opoo "Bosun watchdog install did not complete cleanly — daemon crashes " \
-           "won't auto-restart until you run `port-daddy install-bosun` by hand."
+    # 3.27 and earlier installed a second watchdog that could SIGKILL the
+    # Homebrew-owned daemon during a legitimate startup scan. Remove that job
+    # during upgrade; launchd/systemd already owns restart policy for the
+    # foreground service below.
+    if OS.mac?
+      legacy_label = "gui/#{Process.uid}/com.portdaddy.bosun"
+      Kernel.system("/bin/launchctl", "bootout", legacy_label,
+                    out: File::NULL, err: File::NULL)
+      legacy_plist = Pathname.new(Dir.home)/"Library/LaunchAgents/com.portdaddy.bosun.plist"
+      legacy_plist.unlink if legacy_plist.exist?
+    elsif OS.linux?
+      Kernel.system("systemctl", "--user", "disable", "--now", "port-daddy-bosun.service",
+                    out: File::NULL, err: File::NULL)
+      legacy_unit = Pathname.new(Dir.home)/".config/systemd/user/port-daddy-bosun.service"
+      legacy_unit.unlink if legacy_unit.exist?
+      Kernel.system("systemctl", "--user", "daemon-reload",
+                    out: File::NULL, err: File::NULL)
+    end
+
+    # Freshness is an update timer, not a daemon supervisor. Keep that useful
+    # job independent from the retired watchdog on releases that expose the
+    # narrow installer.
+    if version >= Version.new("3.28.0") &&
+       !Kernel.system(bin/"port-daddy", "install-freshness")
+      opoo "Port Daddy freshness timer was not installed; FleetBar can still update it manually."
     end
   end
 
