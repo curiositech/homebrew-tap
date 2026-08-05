@@ -13,9 +13,7 @@ from typing import Any
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 RELEASE_TAG = re.compile(
-    r"^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
-    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
-    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+    r"^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$"
 )
 ASSETS = (
     ("arm64", "pd-darwin-arm64.tar.gz", "pd-darwin-arm64-imprint.json"),
@@ -50,7 +48,7 @@ def verify_release_evidence(
 ) -> dict[str, str]:
     candidate_sha = candidate_sha.lower()
     if not RELEASE_TAG.fullmatch(version):
-        _reject("version must be an exact v-prefixed semantic release tag")
+        _reject("version must be an exact stable v-prefixed release tag")
     if not FULL_SHA.fullmatch(candidate_sha):
         _reject("candidate SHA must be a full lowercase commit")
 

@@ -21,8 +21,8 @@ jobs:
           PAYLOAD_LINUX_SHA256: ${{ github.event.client_payload.linux_archive_sha256 }}
         run: |
           set -euo pipefail
-          [[ "$PAYLOAD_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)([-+][0-9A-Za-z.-]+)?$ ]] || {
-            echo "::error::invalid Port Daddy release tag"; exit 1;
+          [[ "$PAYLOAD_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "::error::Homebrew accepts stable Port Daddy release tags only"; exit 1;
           }
           [[ "$PAYLOAD_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
             echo "::error::missing or invalid candidate SHA"; exit 1;

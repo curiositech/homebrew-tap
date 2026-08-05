@@ -82,6 +82,11 @@ class ReleaseEvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(release_evidence.EvidenceError, "incomplete"):
             self.verify()
 
+    def test_rejects_prerelease_tags(self):
+        self.version = "v3.28.0-rc.1"
+        with self.assertRaisesRegex(release_evidence.EvidenceError, "exact stable"):
+            self.verify()
+
     def test_workflow_requires_and_verifies_every_dispatch_field(self):
         self.assertIn("github.event.client_payload.candidate_sha", WORKFLOW)
         self.assertIn("github.event.client_payload.darwin_archive_sha256", WORKFLOW)
