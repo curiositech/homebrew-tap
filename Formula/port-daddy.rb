@@ -96,31 +96,34 @@ class PortDaddy < Formula
     ohai "Homebrew is the sole Port Daddy daemon supervisor."
     ohai "Open FleetBar for daemon health, restart, and the published dashboard endpoint."
 
-    # 3.27 and earlier installed a second watchdog that could SIGKILL the
-    # Homebrew-owned daemon during a legitimate startup scan. Remove that job
-    # during upgrade; launchd/systemd already owns restart policy for the
-    # foreground service below.
-    if OS.mac?
-      legacy_label = "gui/#{Process.uid}/com.portdaddy.bosun"
-      Kernel.system("/bin/launchctl", "bootout", legacy_label,
-                    out: File::NULL, err: File::NULL)
-      legacy_plist = Pathname.new(Dir.home)/"Library/LaunchAgents/com.portdaddy.bosun.plist"
-      legacy_plist.unlink if legacy_plist.exist?
-    elsif OS.linux?
-      Kernel.system("systemctl", "--user", "disable", "--now", "port-daddy-bosun.service",
-                    out: File::NULL, err: File::NULL)
-      legacy_unit = Pathname.new(Dir.home)/".config/systemd/user/port-daddy-bosun.service"
-      legacy_unit.unlink if legacy_unit.exist?
-      Kernel.system("systemctl", "--user", "daemon-reload",
-                    out: File::NULL, err: File::NULL)
-    end
+    if version >= Version.new("3.28.0")
+      # 3.27 and earlier installed a second watchdog that could SIGKILL the
+      # Homebrew-owned daemon during a legitimate startup scan. Retire that job
+      # only after the single-supervisor runtime is present in the same keg.
+      if OS.mac?
+        legacy_label = "gui/#{Process.uid}/com.portdaddy.bosun"
+        Kernel.system("/bin/launchctl", "bootout", legacy_label,
+                      out: File::NULL, err: File::NULL)
+        legacy_plist = Pathname.new(Dir.home)/"Library/LaunchAgents/com.portdaddy.bosun.plist"
+        legacy_plist.unlink if legacy_plist.exist?
+      elsif OS.linux?
+        Kernel.system("systemctl", "--user", "disable", "--now", "port-daddy-bosun.service",
+                      out: File::NULL, err: File::NULL)
+        legacy_unit = Pathname.new(Dir.home)/".config/systemd/user/port-daddy-bosun.service"
+        legacy_unit.unlink if legacy_unit.exist?
+        Kernel.system("systemctl", "--user", "daemon-reload",
+                      out: File::NULL, err: File::NULL)
+      end
 
-    # Freshness is an update timer, not a daemon supervisor. Keep that useful
-    # job independent from the retired watchdog on releases that expose the
-    # narrow installer.
-    if version >= Version.new("3.28.0") &&
-       !Kernel.system(bin/"port-daddy", "install-freshness")
-      opoo "Port Daddy freshness timer was not installed; FleetBar can still update it manually."
+      # Freshness is an update timer, not a daemon supervisor. Keep that useful
+      # job independent from the retired watchdog.
+      unless Kernel.system(bin/"port-daddy", "install-freshness")
+        opoo "Port Daddy freshness timer was not installed; FleetBar can still update it manually."
+      end
+    elsif !Kernel.system(bin/"port-daddy", "install-bosun")
+      # The tap still advertises 3.27 until a signed 3.28 artifact exists. Do
+      # not uninstall its only recovery pair before the replacement ships.
+      opoo "The legacy Port Daddy recovery pair was not installed cleanly."
     end
   end
 
