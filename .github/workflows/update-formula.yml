@@ -16,24 +16,58 @@ jobs:
         id: vars
         env:
           PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
+          PAYLOAD_CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          PAYLOAD_DARWIN_SHA256: ${{ github.event.client_payload.darwin_archive_sha256 }}
+          PAYLOAD_LINUX_SHA256: ${{ github.event.client_payload.linux_archive_sha256 }}
         run: |
+          set -euo pipefail
+          [[ "$PAYLOAD_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)([-+][0-9A-Za-z.-]+)?$ ]] || {
+            echo "::error::invalid Port Daddy release tag"; exit 1;
+          }
+          [[ "$PAYLOAD_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::missing or invalid candidate SHA"; exit 1;
+          }
+          [[ "$PAYLOAD_DARWIN_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "::error::missing or invalid Darwin archive digest"; exit 1;
+          }
+          [[ "$PAYLOAD_LINUX_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "::error::missing or invalid Linux archive digest"; exit 1;
+          }
           VERSION="${PAYLOAD_VERSION#v}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=${PAYLOAD_VERSION}" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=${VERSION}"
+            echo "tag=${PAYLOAD_VERSION}"
+            echo "candidate_sha=${PAYLOAD_CANDIDATE_SHA}"
+            echo "darwin_sha256=${PAYLOAD_DARWIN_SHA256}"
+            echo "linux_sha256=${PAYLOAD_LINUX_SHA256}"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Download binaries and compute sha256
+      - name: Download and verify candidate-bound release evidence
         id: sha
         env:
           VERSION: ${{ steps.vars.outputs.version }}
           TAG: ${{ steps.vars.outputs.tag }}
+          CANDIDATE_SHA: ${{ steps.vars.outputs.candidate_sha }}
+          EXPECTED_DARWIN_SHA256: ${{ steps.vars.outputs.darwin_sha256 }}
+          EXPECTED_LINUX_SHA256: ${{ steps.vars.outputs.linux_sha256 }}
         run: |
+          set -euo pipefail
           BASE="https://github.com/curiositech/port-daddy/releases/download/${TAG}"
+          ASSETS="$RUNNER_TEMP/port-daddy-release-evidence"
+          mkdir -p "$ASSETS"
 
-          curl -fsSL "${BASE}/pd-darwin-arm64.tar.gz" -o arm64.tar.gz
-          ARM64=$(sha256sum arm64.tar.gz | awk '{print $1}')
+          curl -fsSL "${BASE}/pd-darwin-arm64.tar.gz" -o "$ASSETS/pd-darwin-arm64.tar.gz"
+          curl -fsSL "${BASE}/pd-darwin-arm64-imprint.json" -o "$ASSETS/pd-darwin-arm64-imprint.json"
+          curl -fsSL "${BASE}/pd-linux-x64.tar.gz" -o "$ASSETS/pd-linux-x64.tar.gz"
+          curl -fsSL "${BASE}/pd-linux-x64-imprint.json" -o "$ASSETS/pd-linux-x64-imprint.json"
 
-          curl -fsSL "${BASE}/pd-linux-x64.tar.gz" -o linux.tar.gz
-          LINUX=$(sha256sum linux.tar.gz | awk '{print $1}')
+          python3 scripts/verify-port-daddy-release-evidence.py \
+            --version "$TAG" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --darwin-expected-sha256 "$EXPECTED_DARWIN_SHA256" \
+            --linux-expected-sha256 "$EXPECTED_LINUX_SHA256" \
+            --assets-dir "$ASSETS" \
+            --github-output "$GITHUB_OUTPUT"
 
           # pd-console.app — only present from the release that first shipped the
           # build-pd-console-app job (#493). Tolerate its absence so older / daemon-
@@ -45,11 +79,7 @@ jobs:
             echo "::notice::no pd-console.app in ${TAG} — skipping cask refresh"
           fi
 
-          {
-            echo "arm64=${ARM64}"
-            echo "linux=${LINUX}"
-            echo "console=${CONSOLE}"
-          } >> "$GITHUB_OUTPUT"
+          echo "console=${CONSOLE}" >> "$GITHUB_OUTPUT"
 
       - name: Update formula
         env:

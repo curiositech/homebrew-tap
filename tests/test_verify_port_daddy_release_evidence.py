@@ -1,0 +1,94 @@
+import hashlib
+import json
+import tempfile
+import unittest
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+
+SCRIPT = Path(__file__).parents[1] / "scripts" / "verify-port-daddy-release-evidence.py"
+WORKFLOW = (Path(__file__).parents[1] / ".github/workflows/update-formula.yml").read_text()
+SPEC = spec_from_file_location("release_evidence", SCRIPT)
+release_evidence = module_from_spec(SPEC)
+assert SPEC.loader is not None
+SPEC.loader.exec_module(release_evidence)
+
+
+class ReleaseEvidenceTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.assets = Path(self.temp.name)
+        self.version = "v3.28.0"
+        self.candidate_sha = "a" * 40
+        self.expected = {}
+        for index, (output_name, archive_name, imprint_name) in enumerate(
+            release_evidence.ASSETS, start=1
+        ):
+            data = f"archive-{index}".encode()
+            digest = hashlib.sha256(data).hexdigest()
+            (self.assets / archive_name).write_bytes(data)
+            (self.assets / imprint_name).write_text(json.dumps({
+                "sourceCommit": self.candidate_sha,
+                "releaseVersion": self.version,
+                "missingRequired": [],
+                "archives": [{
+                    "name": archive_name,
+                    "bytes": len(data),
+                    "sha256": digest,
+                }],
+            }))
+            self.expected[output_name] = digest
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def verify(self):
+        return release_evidence.verify_release_evidence(
+            version=self.version,
+            candidate_sha=self.candidate_sha,
+            expected_sha256=self.expected,
+            assets_dir=self.assets,
+        )
+
+    def test_accepts_bytes_bound_to_candidate_tag_and_payload(self):
+        self.assertEqual(self.verify(), {
+            "version": "3.28.0",
+            "arm64": self.expected["arm64"],
+            "linux": self.expected["linux"],
+        })
+
+    def test_rejects_candidate_mismatch(self):
+        path = self.assets / "pd-darwin-arm64-imprint.json"
+        imprint = json.loads(path.read_text())
+        imprint["sourceCommit"] = "b" * 40
+        path.write_text(json.dumps(imprint))
+        with self.assertRaisesRegex(release_evidence.EvidenceError, "sourceCommit"):
+            self.verify()
+
+    def test_rejects_archive_tampering(self):
+        (self.assets / "pd-linux-x64.tar.gz").write_bytes(b"tampered")
+        with self.assertRaisesRegex(release_evidence.EvidenceError, "imprint digest"):
+            self.verify()
+
+    def test_rejects_dispatch_digest_mismatch(self):
+        self.expected["arm64"] = "f" * 64
+        with self.assertRaisesRegex(release_evidence.EvidenceError, "source dispatch"):
+            self.verify()
+
+    def test_rejects_incomplete_imprint(self):
+        path = self.assets / "pd-linux-x64-imprint.json"
+        imprint = json.loads(path.read_text())
+        imprint["missingRequired"] = ["daemon"]
+        path.write_text(json.dumps(imprint))
+        with self.assertRaisesRegex(release_evidence.EvidenceError, "incomplete"):
+            self.verify()
+
+    def test_workflow_requires_and_verifies_every_dispatch_field(self):
+        self.assertIn("github.event.client_payload.candidate_sha", WORKFLOW)
+        self.assertIn("github.event.client_payload.darwin_archive_sha256", WORKFLOW)
+        self.assertIn("github.event.client_payload.linux_archive_sha256", WORKFLOW)
+        self.assertIn("python3 scripts/verify-port-daddy-release-evidence.py", WORKFLOW)
+        self.assertIn("--github-output \"$GITHUB_OUTPUT\"", WORKFLOW)
+
+
+if __name__ == "__main__":
+    unittest.main()
