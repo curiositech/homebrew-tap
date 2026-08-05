@@ -45,9 +45,11 @@ jobs:
             echo "::notice::no pd-console.app in ${TAG} — skipping cask refresh"
           fi
 
-          echo "arm64=${ARM64}" >> "$GITHUB_OUTPUT"
-          echo "linux=${LINUX}" >> "$GITHUB_OUTPUT"
-          echo "console=${CONSOLE}" >> "$GITHUB_OUTPUT"
+          {
+            echo "arm64=${ARM64}"
+            echo "linux=${LINUX}"
+            echo "console=${CONSOLE}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Update formula
         env:
@@ -59,6 +61,9 @@ jobs:
 
           # Update version
           sed -i "s/version \"[^\"]*\"/version \"${VERSION}\"/" "$FORMULA"
+          # Formula revisions apply only to the old upstream version. A new
+          # Port Daddy release always starts at revision zero.
+          sed -i '/^[[:space:]]*revision [0-9][0-9]*$/d' "$FORMULA"
 
           # Update sha256 placeholders / previous values.
           # Body of the heredoc MUST be indented at the YAML literal-block
