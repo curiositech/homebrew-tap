@@ -3,7 +3,7 @@ require "digest"
 class PortDaddy < Formula
   desc "Authoritative port manager for multi-agent development"
   homepage "https://github.com/curiositech/port-daddy"
-  version "3.30.0"
+  version "3.30.1"
   license "MIT"
 
   SYNTHETIC_HOMEBREW_ENTRIES = [".brew_home"].freeze
@@ -15,14 +15,14 @@ class PortDaddy < Formula
   on_macos do
     on_arm do
       url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-darwin-arm64.tar.gz"
-      sha256 "a1d597fa55b16d3274725ee1e929cfc44aa96f6642c6fa2167b66eb0ef365b61"
+      sha256 "74e7d35c8053ffc106ccbda9001dda51b73060935af14548ff605e6f4b43535f"
     end
   end
 
   on_linux do
     on_intel do
       url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-linux-x64.tar.gz"
-      sha256 "28374ccda60d13a9c0e06f37043c51208d6e3439a7af5d396ac5635d9e0079cf"
+      sha256 "8e559565bd3eb474a3642689beb3fb8e1d403769b4cca7544e06e05805214aaf"
     end
   end
 
