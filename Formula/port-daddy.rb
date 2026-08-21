@@ -3,21 +3,20 @@ require "digest"
 class PortDaddy < Formula
   desc "Authoritative port manager for multi-agent development"
   homepage "https://github.com/curiositech/port-daddy"
-  version "3.27.0"
+  version "3.29.0"
   license "MIT"
-  revision 4
 
   on_macos do
     on_arm do
       url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-darwin-arm64.tar.gz"
-      sha256 "484bb19a83c474ebfeeb8d5ee4b4189ac8cd89d3ece1363e506eb75c8d5adb3f"
+      sha256 "05447b91431f85b198519ebec2d0c4d3e0aa6012540ee00bd60cc349fc55b76d"
     end
   end
 
   on_linux do
     on_intel do
       url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-linux-x64.tar.gz"
-      sha256 "b7a570737f16737e288faf4ef402096a4ecbb047e6298c9c8dcdbb76029678fd"
+      sha256 "98bd0023b4783dbb52064c65eb06cc1ff5dc75ff1e864eb9306e8313133ae141"
     end
   end
 
