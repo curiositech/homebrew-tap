@@ -6,6 +6,12 @@ class PortDaddy < Formula
   version "3.29.0"
   license "MIT"
 
+  SYNTHETIC_HOMEBREW_ENTRIES = [".brew_home"].freeze
+
+  def self.release_manifest_entries(staged_entries)
+    (staged_entries - SYNTHETIC_HOMEBREW_ENTRIES).sort
+  end
+
   on_macos do
     on_arm do
       url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-darwin-arm64.tar.gz"
@@ -50,10 +56,9 @@ class PortDaddy < Formula
     # install runs. It is build-environment state, not an archive entry, so it
     # must not participate in the release-owned manifest hash. Keep the ignore
     # list exact: every other unexpected entry still fails closed below.
-    synthetic_homebrew_entries = [".brew_home"].freeze
-    staged_entries = Dir.children(".").sort
-    ignored_entries = staged_entries & synthetic_homebrew_entries
-    actual_entries = staged_entries - synthetic_homebrew_entries
+    staged_entries = Dir.children(".")
+    ignored_entries = staged_entries & SYNTHETIC_HOMEBREW_ENTRIES
+    actual_entries = self.class.release_manifest_entries(staged_entries)
     actual_hash = Digest::SHA256.hexdigest(actual_entries.join(","))
     if actual_hash != known_tarball_manifest_sha256
       odie <<~EOS
