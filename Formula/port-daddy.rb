@@ -46,7 +46,14 @@ class PortDaddy < Formula
     else
       legacy_tarball_manifest_sha256
     end
-    actual_entries = Dir.children(".").sort
+    # Homebrew creates .brew_home inside the formula staging directory before
+    # install runs. It is build-environment state, not an archive entry, so it
+    # must not participate in the release-owned manifest hash. Keep the ignore
+    # list exact: every other unexpected entry still fails closed below.
+    synthetic_homebrew_entries = [".brew_home"].freeze
+    staged_entries = Dir.children(".").sort
+    ignored_entries = staged_entries & synthetic_homebrew_entries
+    actual_entries = staged_entries - synthetic_homebrew_entries
     actual_hash = Digest::SHA256.hexdigest(actual_entries.join(","))
     if actual_hash != known_tarball_manifest_sha256
       odie <<~EOS
@@ -56,6 +63,7 @@ class PortDaddy < Formula
           expected sha256: #{known_tarball_manifest_sha256}
           actual entries:  #{actual_entries.join(", ")}
           actual sha256:   #{actual_hash}
+          ignored Homebrew build entries: #{ignored_entries.empty? ? "(none)" : ignored_entries.join(", ")}
         Update install() to explicitly handle every entry above, then recompute
         the hash from a fresh tarball extraction.
       EOS
