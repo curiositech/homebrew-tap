@@ -1,6 +1,6 @@
 cask "port-daddy-console" do
-  version "3.30.1"
-  sha256 "308ed82ee4a969a5a74b98bc592bc1626679577fdc9cd22736e1c2923c354c37"
+  version "3.30.2"
+  sha256 "cf18a23a9f8d0b9ef5fb46e4deb5b9ccffe95c4ce2ff91c5b72321f83aecc71c"
 
   url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/PortDaddy-Console-macOS-arm64.zip"
   name "Port Daddy Console"
