@@ -94,6 +94,19 @@ class ReleaseEvidenceTest(unittest.TestCase):
         self.assertIn("python3 scripts/verify-port-daddy-release-evidence.py", WORKFLOW)
         self.assertIn("--github-output \"$GITHUB_OUTPUT\"", WORKFLOW)
 
+    def test_workflow_self_discovers_stable_release_without_cross_repo_credentials(self):
+        self.assertIn("schedule:", WORKFLOW)
+        self.assertIn("workflow_dispatch:", WORKFLOW)
+        self.assertIn("releases/latest/download/latest.json", WORKFLOW)
+        self.assertIn("pd-darwin-arm64-imprint.json", WORKFLOW)
+        self.assertIn("PAYLOAD_CANDIDATE_SHA=", WORKFLOW)
+        self.assertIn("group: port-daddy-formula-update", WORKFLOW)
+        self.assertNotIn("secrets.", WORKFLOW)
+
+    def test_workflow_noops_when_formula_already_matches(self):
+        self.assertIn("git diff --cached --quiet", WORKFLOW)
+        self.assertIn("nothing to publish", WORKFLOW)
+
 
 if __name__ == "__main__":
     unittest.main()

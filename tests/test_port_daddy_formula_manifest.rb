@@ -42,4 +42,10 @@ assert(
   "unexpected hidden entries did not fail the release manifest",
 )
 
-puts "formula manifest tests PASS: .brew_home ignored; empty and unexpected entries fail closed"
+formula_source = File.read(File.expand_path("../Formula/port-daddy.rb", __dir__))
+assert(
+  !formula_source.include?(%q{"install-freshness"}),
+  "post_install invokes the removed install-freshness command",
+)
+
+puts "formula manifest tests PASS: release entries fail closed; post_install uses only shipped commands"

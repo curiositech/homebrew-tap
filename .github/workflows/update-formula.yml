@@ -3,6 +3,16 @@ name: Update formula
 on:
   repository_dispatch:
     types: [update-formula]
+  workflow_dispatch:
+  schedule:
+    # Credential-independent backstop. A Port Daddy release cannot be stranded
+    # by an expired cross-repository token; the tap discovers and verifies the
+    # latest stable evidence itself within ten minutes.
+    - cron: '*/10 * * * *'
+
+concurrency:
+  group: port-daddy-formula-update
+  cancel-in-progress: false
 
 jobs:
   update:
@@ -12,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set version
+      - name: Resolve release identity
         id: vars
         env:
           PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
@@ -21,6 +31,20 @@ jobs:
           PAYLOAD_LINUX_SHA256: ${{ github.event.client_payload.linux_archive_sha256 }}
         run: |
           set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" != "repository_dispatch" ]; then
+            EVIDENCE="$RUNNER_TEMP/port-daddy-latest.json"
+            IMPRINT="$RUNNER_TEMP/port-daddy-latest-darwin-imprint.json"
+            curl -fsSL --retry 3 --retry-delay 5 \
+              https://github.com/curiositech/port-daddy/releases/latest/download/latest.json \
+              -o "$EVIDENCE"
+            PAYLOAD_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tag"])' "$EVIDENCE")"
+            PAYLOAD_DARWIN_SHA256="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(next(a["sha256"] for a in d["artifacts"] if a["filename"] == "pd-darwin-arm64.tar.gz"))' "$EVIDENCE")"
+            PAYLOAD_LINUX_SHA256="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(next(a["sha256"] for a in d["artifacts"] if a["filename"] == "pd-linux-x64.tar.gz"))' "$EVIDENCE")"
+            curl -fsSL --retry 3 --retry-delay 5 \
+              "https://github.com/curiositech/port-daddy/releases/download/${PAYLOAD_VERSION}/pd-darwin-arm64-imprint.json" \
+              -o "$IMPRINT"
+            PAYLOAD_CANDIDATE_SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceCommit"])' "$IMPRINT")"
+          fi
           [[ "$PAYLOAD_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo "::error::Homebrew accepts stable Port Daddy release tags only"; exit 1;
           }
@@ -149,5 +173,9 @@ jobs:
           git add Formula/port-daddy.rb Casks/port-daddy-console.rb
           # Casks/ only changes on releases that shipped a console .app; commit
           # whatever is staged, and no-op cleanly if nothing changed.
-          git diff --cached --quiet || git commit -m "chore: bump port-daddy to v${VERSION}"
-          git push
+          if git diff --cached --quiet; then
+            echo "Formula already matches v${VERSION}; nothing to publish."
+          else
+            git commit -m "chore: bump port-daddy to v${VERSION}"
+            git push
+          fi
