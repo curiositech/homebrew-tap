@@ -64,6 +64,20 @@ class ReleaseEvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(release_evidence.EvidenceError, "sourceCommit"):
             self.verify()
 
+    def test_rejects_missing_or_malformed_source_commit(self):
+        path = self.assets / "pd-darwin-arm64-imprint.json"
+        for invalid in (None, "not-a-commit"):
+            imprint = json.loads(path.read_text())
+            if invalid is None:
+                imprint.pop("sourceCommit", None)
+            else:
+                imprint["sourceCommit"] = invalid
+            path.write_text(json.dumps(imprint))
+            with self.assertRaisesRegex(release_evidence.EvidenceError, "sourceCommit"):
+                self.verify()
+            imprint["sourceCommit"] = self.candidate_sha
+            path.write_text(json.dumps(imprint))
+
     def test_rejects_archive_tampering(self):
         (self.assets / "pd-linux-x64.tar.gz").write_bytes(b"tampered")
         with self.assertRaisesRegex(release_evidence.EvidenceError, "imprint digest"):
@@ -118,6 +132,12 @@ class ReleaseEvidenceTest(unittest.TestCase):
         (self.assets / "pd-linux-x64.tar.gz").write_bytes(b"tampered legacy archive")
         with self.assertRaisesRegex(release_evidence.EvidenceError, "imprint digest"):
             self.verify()
+
+    def test_provenance_boundary_rejects_malformed_versions(self):
+        for invalid in ("v3.30", "v3.30.3.1", "3.30.3", "v3.30.3-rc.1"):
+            with self.subTest(version=invalid):
+                with self.assertRaisesRegex(release_evidence.EvidenceError, "exact stable"):
+                    release_evidence.requires_provenance(invalid)
 
     def test_workflow_requires_and_verifies_every_dispatch_field(self):
         self.assertIn("github.event.client_payload.candidate_sha", WORKFLOW)
