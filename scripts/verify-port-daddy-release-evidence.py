@@ -19,6 +19,7 @@ ASSETS = (
     ("arm64", "pd-darwin-arm64.tar.gz", "pd-darwin-arm64-imprint.json"),
     ("linux", "pd-linux-x64.tar.gz", "pd-linux-x64-imprint.json"),
 )
+MIN_ATTESTED_VERSION = (3, 30, 3)
 
 
 class EvidenceError(ValueError):
@@ -37,6 +38,71 @@ def sha256_file(path: Path) -> tuple[str, int]:
 
 def _reject(message: str) -> None:
     raise EvidenceError(f"Port Daddy release evidence rejected: {message}")
+
+
+def load_json_document(path: Path, label: str) -> dict[str, Any]:
+    try:
+        document = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as error:
+        _reject(f"cannot read {label}: {error}")
+    if not isinstance(document, dict):
+        _reject(f"{label} must be a JSON object")
+    return document
+
+
+def parse_release_feed(document: dict[str, Any]) -> dict[str, str]:
+    version = document.get("tag")
+    if not isinstance(version, str) or not RELEASE_TAG.fullmatch(version):
+        _reject("latest release feed must contain an exact stable tag")
+
+    artifacts = document.get("artifacts")
+    if not isinstance(artifacts, list):
+        _reject("latest release feed artifacts must be an array")
+
+    result = {"tag": version}
+    for output_name, archive_name, _ in ASSETS:
+        matches = [
+            artifact
+            for artifact in artifacts
+            if isinstance(artifact, dict) and artifact.get("filename") == archive_name
+        ]
+        if len(matches) != 1:
+            _reject(f"latest release feed must contain exactly one {archive_name}")
+        digest = matches[0].get("sha256")
+        if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+            _reject(f"latest release feed {archive_name} digest is invalid")
+        result[output_name] = digest
+    return result
+
+
+def parse_git_ref(document: dict[str, Any]) -> dict[str, str]:
+    git_object = document.get("object")
+    if not isinstance(git_object, dict):
+        _reject("release tag ref is missing its Git object")
+    object_type = git_object.get("type")
+    object_sha = git_object.get("sha")
+    if object_type not in {"commit", "tag"}:
+        _reject(f"release tag resolved to unsupported Git object type {object_type}")
+    if not isinstance(object_sha, str) or not FULL_SHA.fullmatch(object_sha):
+        _reject("release tag ref contains an invalid Git object SHA")
+    return {"type": object_type, "sha": object_sha}
+
+
+def parse_annotated_tag(document: dict[str, Any]) -> str:
+    git_object = document.get("object")
+    if not isinstance(git_object, dict) or git_object.get("type") != "commit":
+        _reject("annotated release tag must peel directly to a commit")
+    object_sha = git_object.get("sha")
+    if not isinstance(object_sha, str) or not FULL_SHA.fullmatch(object_sha):
+        _reject("annotated release tag contains an invalid commit SHA")
+    return object_sha
+
+
+def requires_provenance(version: str) -> bool:
+    if not RELEASE_TAG.fullmatch(version):
+        _reject("provenance boundary requires an exact stable release tag")
+    parsed = tuple(int(part) for part in version.removeprefix("v").split("."))
+    return parsed >= MIN_ATTESTED_VERSION
 
 
 def verify_release_evidence(
@@ -62,10 +128,7 @@ def verify_release_evidence(
         imprint_path = assets_dir / imprint_name
         if not archive_path.is_file() or not imprint_path.is_file():
             _reject(f"missing {archive_name} or {imprint_name}")
-        try:
-            imprint: dict[str, Any] = json.loads(imprint_path.read_text())
-        except (json.JSONDecodeError, OSError) as error:
-            _reject(f"cannot read {imprint_name}: {error}")
+        imprint = load_json_document(imprint_path, imprint_name)
 
         if str(imprint.get("sourceCommit", "")).lower() != candidate_sha:
             _reject(f"{imprint_name} sourceCommit does not match candidate")
@@ -96,13 +159,47 @@ def verify_release_evidence(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--version", required=True)
-    parser.add_argument("--candidate-sha", required=True)
-    parser.add_argument("--darwin-expected-sha256", required=True)
-    parser.add_argument("--linux-expected-sha256", required=True)
-    parser.add_argument("--assets-dir", type=Path, required=True)
+    inspection = parser.add_mutually_exclusive_group()
+    inspection.add_argument("--inspect-release-feed", type=Path)
+    inspection.add_argument("--inspect-git-ref", type=Path)
+    inspection.add_argument("--inspect-annotated-tag", type=Path)
+    inspection.add_argument("--requires-provenance")
+    parser.add_argument("--version")
+    parser.add_argument("--candidate-sha")
+    parser.add_argument("--darwin-expected-sha256")
+    parser.add_argument("--linux-expected-sha256")
+    parser.add_argument("--assets-dir", type=Path)
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
+
+    if args.inspect_release_feed:
+        print(json.dumps(parse_release_feed(
+            load_json_document(args.inspect_release_feed, "latest release feed")
+        ), sort_keys=True))
+        return 0
+    if args.inspect_git_ref:
+        print(json.dumps(parse_git_ref(
+            load_json_document(args.inspect_git_ref, "release tag ref")
+        ), sort_keys=True))
+        return 0
+    if args.inspect_annotated_tag:
+        print(parse_annotated_tag(
+            load_json_document(args.inspect_annotated_tag, "annotated release tag")
+        ))
+        return 0
+    if args.requires_provenance:
+        return 0 if requires_provenance(args.requires_provenance) else 1
+
+    required = {
+        "--version": args.version,
+        "--candidate-sha": args.candidate_sha,
+        "--darwin-expected-sha256": args.darwin_expected_sha256,
+        "--linux-expected-sha256": args.linux_expected_sha256,
+        "--assets-dir": args.assets_dir,
+    }
+    missing = [flag for flag, value in required.items() if value is None]
+    if missing:
+        parser.error(f"the following arguments are required: {', '.join(missing)}")
 
     result = verify_release_evidence(
         version=args.version,

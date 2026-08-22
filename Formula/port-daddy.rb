@@ -127,11 +127,6 @@ class PortDaddy < Formula
                       out: File::NULL, err: File::NULL)
       end
 
-      # Freshness is an update timer, not a daemon supervisor. Keep that useful
-      # job independent from the retired watchdog.
-      unless Kernel.system(bin/"port-daddy", "install-freshness")
-        opoo "Port Daddy freshness timer was not installed; FleetBar can still update it manually."
-      end
     elsif !Kernel.system(bin/"port-daddy", "install-bosun")
       # The tap still advertises 3.27 until a signed 3.28 artifact exists. Do
       # not uninstall its only recovery pair before the replacement ships.
