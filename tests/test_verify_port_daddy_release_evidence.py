@@ -109,6 +109,15 @@ class ReleaseEvidenceTest(unittest.TestCase):
         self.assertIn("group: port-daddy-formula-update", WORKFLOW)
         self.assertNotIn("secrets.", WORKFLOW)
 
+    def test_workflow_requires_signed_provenance_for_new_releases(self):
+        self.assertIn('MIN_ATTESTED_VERSION="3.30.3"', WORKFLOW)
+        self.assertIn("gh attestation verify", WORKFLOW)
+        self.assertIn("--signer-workflow curiositech/port-daddy/.github/workflows/release.yml", WORKFLOW)
+        self.assertIn('--source-ref "refs/tags/${TAG}"', WORKFLOW)
+        self.assertIn('--source-digest "$CANDIDATE_SHA"', WORKFLOW)
+        self.assertIn("--deny-self-hosted-runners", WORKFLOW)
+        self.assertIn("predates the v3.30.3 provenance boundary", WORKFLOW)
+
     def test_workflow_noops_when_formula_already_matches(self):
         self.assertIn("git diff --cached --quiet", WORKFLOW)
         self.assertIn("nothing to publish", WORKFLOW)

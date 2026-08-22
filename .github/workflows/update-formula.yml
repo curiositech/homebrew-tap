@@ -78,6 +78,7 @@ jobs:
       - name: Download and verify candidate-bound release evidence
         id: sha
         env:
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.vars.outputs.version }}
           TAG: ${{ steps.vars.outputs.tag }}
           CANDIDATE_SHA: ${{ steps.vars.outputs.candidate_sha }}
@@ -101,6 +102,26 @@ jobs:
             --linux-expected-sha256 "$EXPECTED_LINUX_SHA256" \
             --assets-dir "$ASSETS" \
             --github-output "$GITHUB_OUTPUT"
+
+          # v3.30.3 is the first release whose archives carry GitHub/Sigstore
+          # build-provenance attestations. Enforce the artifact bytes, source
+          # tag + commit, signer workflow, and hosted-runner boundary before
+          # those digests can reach the formula. The v3.30.2 legacy allowance
+          # is exact and can never weaken later releases.
+          # https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations
+          MIN_ATTESTED_VERSION="3.30.3"
+          if [ "$(printf '%s\n%s\n' "$MIN_ATTESTED_VERSION" "$VERSION" | sort -V | head -n 1)" = "$MIN_ATTESTED_VERSION" ]; then
+            for archive in pd-darwin-arm64.tar.gz pd-linux-x64.tar.gz; do
+              gh attestation verify "$ASSETS/$archive" \
+                --repo curiositech/port-daddy \
+                --signer-workflow curiositech/port-daddy/.github/workflows/release.yml \
+                --source-ref "refs/tags/${TAG}" \
+                --source-digest "$CANDIDATE_SHA" \
+                --deny-self-hosted-runners
+            done
+          else
+            echo "::notice::${TAG} predates the v3.30.3 provenance boundary; checksum and dual-imprint verification remain enforced."
+          fi
 
           # pd-console.app — only present from the release that first shipped the
           # build-pd-console-app job (#493). Tolerate its absence so older / daemon-
