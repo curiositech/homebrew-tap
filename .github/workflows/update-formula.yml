@@ -25,33 +25,46 @@ jobs:
       - name: Resolve release identity
         id: vars
         env:
-          GH_TOKEN: ${{ github.token }}
           PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
           PAYLOAD_CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
           PAYLOAD_DARWIN_SHA256: ${{ github.event.client_payload.darwin_archive_sha256 }}
           PAYLOAD_LINUX_SHA256: ${{ github.event.client_payload.linux_archive_sha256 }}
         run: |
           set -euo pipefail
+          download_public() {
+            curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 \
+              --connect-timeout 10 --max-time 30 \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -A "port-daddy-homebrew-tap" "$1" -o "$2"
+          }
           if [ "${GITHUB_EVENT_NAME}" != "repository_dispatch" ]; then
             EVIDENCE="$RUNNER_TEMP/port-daddy-latest.json"
-            curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 --max-time 30 \
+            download_public \
               https://github.com/curiositech/port-daddy/releases/latest/download/latest.json \
-              -o "$EVIDENCE"
-            PAYLOAD_VERSION="$(jq -er '.tag' "$EVIDENCE")"
-            PAYLOAD_DARWIN_SHA256="$(jq -er '.artifacts[] | select(.filename == "pd-darwin-arm64.tar.gz") | .sha256' "$EVIDENCE")"
-            PAYLOAD_LINUX_SHA256="$(jq -er '.artifacts[] | select(.filename == "pd-linux-x64.tar.gz") | .sha256' "$EVIDENCE")"
+              "$EVIDENCE"
+            FEED="$(python3 scripts/verify-port-daddy-release-evidence.py --inspect-release-feed "$EVIDENCE")"
+            PAYLOAD_VERSION="$(jq -er '.tag' <<<"$FEED")"
+            PAYLOAD_DARWIN_SHA256="$(jq -er '.arm64' <<<"$FEED")"
+            PAYLOAD_LINUX_SHA256="$(jq -er '.linux' <<<"$FEED")"
             # The tag ref is an authority independent of the release assets.
             # Use its peeled commit to verify BOTH imprints below; deriving the
             # candidate from an imprint would make that half of the check circular.
-            TAG_OBJECT_TYPE="$(gh api "repos/curiositech/port-daddy/git/ref/tags/${PAYLOAD_VERSION}" --jq '.object.type')"
-            TAG_OBJECT_SHA="$(gh api "repos/curiositech/port-daddy/git/ref/tags/${PAYLOAD_VERSION}" --jq '.object.sha')"
+            TAG_REF="$RUNNER_TEMP/port-daddy-tag-ref.json"
+            download_public \
+              "https://api.github.com/repos/curiositech/port-daddy/git/ref/tags/${PAYLOAD_VERSION}" \
+              "$TAG_REF"
+            TAG_OBJECT="$(python3 scripts/verify-port-daddy-release-evidence.py --inspect-git-ref "$TAG_REF")"
+            TAG_OBJECT_TYPE="$(jq -er '.type' <<<"$TAG_OBJECT")"
+            TAG_OBJECT_SHA="$(jq -er '.sha' <<<"$TAG_OBJECT")"
             if [ "$TAG_OBJECT_TYPE" = "tag" ]; then
-              PAYLOAD_CANDIDATE_SHA="$(gh api "repos/curiositech/port-daddy/git/tags/${TAG_OBJECT_SHA}" --jq '.object.sha')"
-            elif [ "$TAG_OBJECT_TYPE" = "commit" ]; then
-              PAYLOAD_CANDIDATE_SHA="$TAG_OBJECT_SHA"
+              TAG_OBJECT_FILE="$RUNNER_TEMP/port-daddy-annotated-tag.json"
+              download_public \
+                "https://api.github.com/repos/curiositech/port-daddy/git/tags/${TAG_OBJECT_SHA}" \
+                "$TAG_OBJECT_FILE"
+              PAYLOAD_CANDIDATE_SHA="$(python3 scripts/verify-port-daddy-release-evidence.py --inspect-annotated-tag "$TAG_OBJECT_FILE")"
             else
-              echo "::error::release tag resolved to unsupported Git object type ${TAG_OBJECT_TYPE}"
-              exit 1
+              PAYLOAD_CANDIDATE_SHA="$TAG_OBJECT_SHA"
             fi
           fi
           [[ "$PAYLOAD_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
@@ -109,15 +122,17 @@ jobs:
           # those digests can reach the formula. The v3.30.2 legacy allowance
           # is exact and can never weaken later releases.
           # https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations
-          MIN_ATTESTED_VERSION="3.30.3"
-          if [ "$(printf '%s\n%s\n' "$MIN_ATTESTED_VERSION" "$VERSION" | sort -V | head -n 1)" = "$MIN_ATTESTED_VERSION" ]; then
+          if python3 scripts/verify-port-daddy-release-evidence.py --requires-provenance "$TAG"; then
             for archive in pd-darwin-arm64.tar.gz pd-linux-x64.tar.gz; do
-              gh attestation verify "$ASSETS/$archive" \
+              if ! gh attestation verify "$ASSETS/$archive" \
                 --repo curiositech/port-daddy \
                 --signer-workflow curiositech/port-daddy/.github/workflows/release.yml \
                 --source-ref "refs/tags/${TAG}" \
                 --source-digest "$CANDIDATE_SHA" \
-                --deny-self-hosted-runners
+                --deny-self-hosted-runners; then
+                echo "::error file=${archive}::GitHub provenance verification failed for ${TAG}"
+                exit 1
+              fi
             done
           else
             echo "::notice::${TAG} predates the v3.30.3 provenance boundary; checksum and dual-imprint verification remain enforced."

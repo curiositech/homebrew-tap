@@ -87,6 +87,38 @@ class ReleaseEvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(release_evidence.EvidenceError, "exact stable"):
             self.verify()
 
+    def test_rejects_malformed_release_feed(self):
+        with self.assertRaisesRegex(release_evidence.EvidenceError, "artifacts"):
+            release_evidence.parse_release_feed({"tag": "v3.30.3", "artifacts": {}})
+
+    def test_rejects_release_feed_with_missing_archive(self):
+        with self.assertRaisesRegex(release_evidence.EvidenceError, "pd-linux-x64"):
+            release_evidence.parse_release_feed({
+                "tag": "v3.30.3",
+                "artifacts": [{
+                    "filename": "pd-darwin-arm64.tar.gz",
+                    "sha256": "a" * 64,
+                }],
+            })
+
+    def test_rejects_unsupported_or_unpeeled_git_objects(self):
+        with self.assertRaisesRegex(release_evidence.EvidenceError, "unsupported"):
+            release_evidence.parse_git_ref({
+                "object": {"type": "tree", "sha": "a" * 40}
+            })
+        with self.assertRaisesRegex(release_evidence.EvidenceError, "peel directly"):
+            release_evidence.parse_annotated_tag({
+                "object": {"type": "tag", "sha": "a" * 40}
+            })
+
+    def test_provenance_boundary_is_exact_and_legacy_checks_remain_fail_closed(self):
+        self.assertFalse(release_evidence.requires_provenance("v3.30.2"))
+        self.assertTrue(release_evidence.requires_provenance("v3.30.3"))
+        self.assertTrue(release_evidence.requires_provenance("v4.0.0"))
+        (self.assets / "pd-linux-x64.tar.gz").write_bytes(b"tampered legacy archive")
+        with self.assertRaisesRegex(release_evidence.EvidenceError, "imprint digest"):
+            self.verify()
+
     def test_workflow_requires_and_verifies_every_dispatch_field(self):
         self.assertIn("github.event.client_payload.candidate_sha", WORKFLOW)
         self.assertIn("github.event.client_payload.darwin_archive_sha256", WORKFLOW)
@@ -100,22 +132,27 @@ class ReleaseEvidenceTest(unittest.TestCase):
         self.assertIn("releases/latest/download/latest.json", WORKFLOW)
         self.assertIn("pd-darwin-arm64-imprint.json", WORKFLOW)
         self.assertIn("PAYLOAD_CANDIDATE_SHA=", WORKFLOW)
-        self.assertIn("git/ref/tags/${PAYLOAD_VERSION}", WORKFLOW)
-        self.assertIn("git/tags/${TAG_OBJECT_SHA}", WORKFLOW)
+        self.assertIn("api.github.com/repos/curiositech/port-daddy/git/ref/tags/${PAYLOAD_VERSION}", WORKFLOW)
+        self.assertIn("api.github.com/repos/curiositech/port-daddy/git/tags/${TAG_OBJECT_SHA}", WORKFLOW)
+        self.assertIn("--inspect-release-feed", WORKFLOW)
+        self.assertIn("--inspect-git-ref", WORKFLOW)
+        self.assertIn("--inspect-annotated-tag", WORKFLOW)
         self.assertIn("TAG_OBJECT_TYPE", WORKFLOW)
         self.assertIn("jq -er", WORKFLOW)
         self.assertIn("--retry-all-errors", WORKFLOW)
         self.assertIn("--max-time 30", WORKFLOW)
         self.assertIn("group: port-daddy-formula-update", WORKFLOW)
         self.assertNotIn("secrets.", WORKFLOW)
+        self.assertNotIn("gh api", WORKFLOW)
 
     def test_workflow_requires_signed_provenance_for_new_releases(self):
-        self.assertIn('MIN_ATTESTED_VERSION="3.30.3"', WORKFLOW)
         self.assertIn("gh attestation verify", WORKFLOW)
         self.assertIn("--signer-workflow curiositech/port-daddy/.github/workflows/release.yml", WORKFLOW)
         self.assertIn('--source-ref "refs/tags/${TAG}"', WORKFLOW)
         self.assertIn('--source-digest "$CANDIDATE_SHA"', WORKFLOW)
         self.assertIn("--deny-self-hosted-runners", WORKFLOW)
+        self.assertIn("--requires-provenance", WORKFLOW)
+        self.assertIn("GitHub provenance verification failed", WORKFLOW)
         self.assertIn("predates the v3.30.3 provenance boundary", WORKFLOW)
 
     def test_workflow_noops_when_formula_already_matches(self):
