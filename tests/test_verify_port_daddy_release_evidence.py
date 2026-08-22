@@ -100,6 +100,12 @@ class ReleaseEvidenceTest(unittest.TestCase):
         self.assertIn("releases/latest/download/latest.json", WORKFLOW)
         self.assertIn("pd-darwin-arm64-imprint.json", WORKFLOW)
         self.assertIn("PAYLOAD_CANDIDATE_SHA=", WORKFLOW)
+        self.assertIn("git/ref/tags/${PAYLOAD_VERSION}", WORKFLOW)
+        self.assertIn("git/tags/${TAG_OBJECT_SHA}", WORKFLOW)
+        self.assertIn("TAG_OBJECT_TYPE", WORKFLOW)
+        self.assertIn("jq -er", WORKFLOW)
+        self.assertIn("--retry-all-errors", WORKFLOW)
+        self.assertIn("--max-time 30", WORKFLOW)
         self.assertIn("group: port-daddy-formula-update", WORKFLOW)
         self.assertNotIn("secrets.", WORKFLOW)
 

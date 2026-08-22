@@ -25,6 +25,7 @@ jobs:
       - name: Resolve release identity
         id: vars
         env:
+          GH_TOKEN: ${{ github.token }}
           PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
           PAYLOAD_CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
           PAYLOAD_DARWIN_SHA256: ${{ github.event.client_payload.darwin_archive_sha256 }}
@@ -33,17 +34,25 @@ jobs:
           set -euo pipefail
           if [ "${GITHUB_EVENT_NAME}" != "repository_dispatch" ]; then
             EVIDENCE="$RUNNER_TEMP/port-daddy-latest.json"
-            IMPRINT="$RUNNER_TEMP/port-daddy-latest-darwin-imprint.json"
-            curl -fsSL --retry 3 --retry-delay 5 \
+            curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 --max-time 30 \
               https://github.com/curiositech/port-daddy/releases/latest/download/latest.json \
               -o "$EVIDENCE"
-            PAYLOAD_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tag"])' "$EVIDENCE")"
-            PAYLOAD_DARWIN_SHA256="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(next(a["sha256"] for a in d["artifacts"] if a["filename"] == "pd-darwin-arm64.tar.gz"))' "$EVIDENCE")"
-            PAYLOAD_LINUX_SHA256="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(next(a["sha256"] for a in d["artifacts"] if a["filename"] == "pd-linux-x64.tar.gz"))' "$EVIDENCE")"
-            curl -fsSL --retry 3 --retry-delay 5 \
-              "https://github.com/curiositech/port-daddy/releases/download/${PAYLOAD_VERSION}/pd-darwin-arm64-imprint.json" \
-              -o "$IMPRINT"
-            PAYLOAD_CANDIDATE_SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceCommit"])' "$IMPRINT")"
+            PAYLOAD_VERSION="$(jq -er '.tag' "$EVIDENCE")"
+            PAYLOAD_DARWIN_SHA256="$(jq -er '.artifacts[] | select(.filename == "pd-darwin-arm64.tar.gz") | .sha256' "$EVIDENCE")"
+            PAYLOAD_LINUX_SHA256="$(jq -er '.artifacts[] | select(.filename == "pd-linux-x64.tar.gz") | .sha256' "$EVIDENCE")"
+            # The tag ref is an authority independent of the release assets.
+            # Use its peeled commit to verify BOTH imprints below; deriving the
+            # candidate from an imprint would make that half of the check circular.
+            TAG_OBJECT_TYPE="$(gh api "repos/curiositech/port-daddy/git/ref/tags/${PAYLOAD_VERSION}" --jq '.object.type')"
+            TAG_OBJECT_SHA="$(gh api "repos/curiositech/port-daddy/git/ref/tags/${PAYLOAD_VERSION}" --jq '.object.sha')"
+            if [ "$TAG_OBJECT_TYPE" = "tag" ]; then
+              PAYLOAD_CANDIDATE_SHA="$(gh api "repos/curiositech/port-daddy/git/tags/${TAG_OBJECT_SHA}" --jq '.object.sha')"
+            elif [ "$TAG_OBJECT_TYPE" = "commit" ]; then
+              PAYLOAD_CANDIDATE_SHA="$TAG_OBJECT_SHA"
+            else
+              echo "::error::release tag resolved to unsupported Git object type ${TAG_OBJECT_TYPE}"
+              exit 1
+            fi
           fi
           [[ "$PAYLOAD_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo "::error::Homebrew accepts stable Port Daddy release tags only"; exit 1;
