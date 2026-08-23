@@ -5,7 +5,6 @@ class PortDaddy < Formula
   homepage "https://github.com/curiositech/port-daddy"
   version "3.30.2"
   license "MIT"
-  revision 1
 
   SYNTHETIC_HOMEBREW_ENTRIES = [".brew_home"].freeze
 
