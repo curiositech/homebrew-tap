@@ -5,11 +5,38 @@ class PortDaddy < Formula
   homepage "https://github.com/curiositech/port-daddy"
   version "3.30.2"
   license "MIT"
+  revision 1
 
   SYNTHETIC_HOMEBREW_ENTRIES = [".brew_home"].freeze
 
   def self.release_manifest_entries(staged_entries)
     (staged_entries - SYNTHETIC_HOMEBREW_ENTRIES).sort
+  end
+
+  # The compiled semantic runtime loads a packaged ONNX shared library lazily,
+  # but dyld/the ELF loader must receive its search path when launchd/systemd
+  # admits the daemon process. Keep this pure so tap CI can verify both shipped
+  # platforms without booting a service.
+  def self.service_environment(prefix:, platform:)
+    platform_arch, loader_variable = case platform
+    when :darwin_arm64
+      ["darwin-arm64", :DYLD_FALLBACK_LIBRARY_PATH]
+    when :linux_x64
+      ["linux-x64", :LD_LIBRARY_PATH]
+    else
+      raise ArgumentError, "unsupported Port Daddy service platform: #{platform}"
+    end
+
+    prefix = prefix.to_s
+    {
+      PORT_DADDY_NO_FLEET: "1",
+      PORT_DADDY_RESOURCE_DIR: File.join(prefix, "share", "port-daddy"),
+      BUN_JSC_useConcurrentGC: "0",
+      BUN_JSC_useConcurrentJIT: "0",
+      loader_variable => File.join(
+        prefix, "bin", "native", "onnxruntime-node", platform_arch
+      ),
+    }
   end
 
   on_macos do
@@ -156,9 +183,11 @@ class PortDaddy < Formula
     # crash family seen under production-shaped daemon load. This trades some
     # throughput for removing concurrent GC/JIT from the always-on control-plane
     # process; set PORT_DADDY_JSC_SAFE_MODE=0 only for targeted local testing.
-    environment_variables PORT_DADDY_NO_FLEET:      "1",
-                          BUN_JSC_useConcurrentGC:  "0",
-                          BUN_JSC_useConcurrentJIT: "0"
+    service_platform = OS.mac? ? :darwin_arm64 : :linux_x64
+    environment_variables(**PortDaddy.service_environment(
+      prefix:   opt_prefix,
+      platform: service_platform,
+    ))
   end
 
   test do

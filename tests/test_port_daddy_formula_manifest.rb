@@ -16,6 +16,7 @@ def manifest_hash(entries)
 end
 
 entries = PortDaddy.release_manifest_entries(RELEASE_ENTRIES + [".brew_home"])
+assert(PortDaddy.revision == 1, "service hotfix does not force a Homebrew upgrade")
 assert(entries == RELEASE_ENTRIES.sort, ".brew_home changed the release entry set")
 assert(
   manifest_hash(entries) == EXPECTED_MANIFEST_SHA256,
@@ -48,4 +49,52 @@ assert(
   "post_install invokes the removed install-freshness command",
 )
 
-puts "formula manifest tests PASS: release entries fail closed; post_install uses only shipped commands"
+darwin_environment = PortDaddy.service_environment(
+  prefix:   "/opt/homebrew/opt/port-daddy",
+  platform: :darwin_arm64,
+)
+assert(
+  darwin_environment[:PORT_DADDY_RESOURCE_DIR] ==
+    "/opt/homebrew/opt/port-daddy/share/port-daddy",
+  "macOS service did not publish the packaged resource root",
+)
+assert(
+  darwin_environment[:DYLD_FALLBACK_LIBRARY_PATH] ==
+    "/opt/homebrew/opt/port-daddy/bin/native/onnxruntime-node/darwin-arm64",
+  "macOS service did not publish the packaged ONNX loader path",
+)
+assert(
+  !darwin_environment.key?(:LD_LIBRARY_PATH),
+  "macOS service published the Linux loader variable",
+)
+
+linux_environment = PortDaddy.service_environment(
+  prefix:   "/home/linuxbrew/.linuxbrew/opt/port-daddy",
+  platform: :linux_x64,
+)
+assert(
+  linux_environment[:LD_LIBRARY_PATH] ==
+    "/home/linuxbrew/.linuxbrew/opt/port-daddy/bin/native/onnxruntime-node/linux-x64",
+  "Linux service did not publish the packaged ONNX loader path",
+)
+assert(
+  !linux_environment.key?(:DYLD_FALLBACK_LIBRARY_PATH),
+  "Linux service published the macOS loader variable",
+)
+assert(
+  darwin_environment.values_at(
+    :PORT_DADDY_NO_FLEET,
+    :BUN_JSC_useConcurrentGC,
+    :BUN_JSC_useConcurrentJIT,
+  ) == ["1", "0", "0"],
+  "semantic launch variables regressed the existing safe-mode contract",
+)
+
+begin
+  PortDaddy.service_environment(prefix: "/opt/port-daddy", platform: :windows_x64)
+  raise "unsupported service platform was accepted"
+rescue ArgumentError => e
+  assert(e.message.include?("unsupported"), "unsupported platform error was not actionable")
+end
+
+puts "formula manifest tests PASS: release entries and semantic service environment fail closed"
