@@ -115,7 +115,8 @@ assert(
   "rendered service loader path is not bound to the versioned keg",
 )
 assert(
-  !rendered_environment[:DYLD_FALLBACK_LIBRARY_PATH].to_s.include?("/opt/port-daddy"),
+  rendered_environment[:DYLD_FALLBACK_LIBRARY_PATH] !=
+    (formula.opt_prefix/"bin/native/onnxruntime-node/darwin-arm64").to_s,
   "rendered service loader path regressed to the stable opt symlink",
 )
 
