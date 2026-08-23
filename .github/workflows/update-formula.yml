@@ -157,45 +157,11 @@ jobs:
           LINUX: ${{ steps.sha.outputs.linux }}
         run: |
           FORMULA="Formula/port-daddy.rb"
-
-          # Update version
-          sed -i "s/version \"[^\"]*\"/version \"${VERSION}\"/" "$FORMULA"
-          # Formula revisions apply only to the old upstream version. A new
-          # Port Daddy release always starts at revision zero.
-          sed -i '/^[[:space:]]*revision [0-9][0-9]*$/d' "$FORMULA"
-
-          # Update sha256 placeholders / previous values.
-          # Body of the heredoc MUST be indented at the YAML literal-block
-          # indent level (10 spaces here) so the surrounding `run: |` keeps
-          # parsing. Without that, YAML treats the first column-0 line as a
-          # block exit and the whole workflow file fails to parse — which is
-          # how this file shipped broken for three days, with every
-          # repository_dispatch silently dropped.
-          python3 - <<'PYEOF'
-          import os, re
-
-          formula = open("Formula/port-daddy.rb").read()
-          arm64 = os.environ["ARM64"]
-          linux = os.environ["LINUX"]
-
-          # The formula only has two sha256 lines (darwin-arm64 then linux-x64).
-          # darwin-x64 was dropped from the release matrix on 2026-05-22 because
-          # macos-13 GHA runners routinely wedge for 24h. Don't touch a third
-          # match; there isn't one.
-          def replace_nth_sha(text, n, new_sha):
-              matches = list(re.finditer(r'sha256 "[a-fA-F0-9]+"', text))
-              if len(matches) < n:
-                  matches = list(re.finditer(r'sha256 "PLACEHOLDER_[A-Z0-9_]+"', text))
-              if len(matches) < n:
-                  return text
-              m = matches[n - 1]
-              return text[:m.start()] + f'sha256 "{new_sha}"' + text[m.end():]
-
-          formula = replace_nth_sha(formula, 1, arm64)   # darwin-arm64
-          formula = replace_nth_sha(formula, 2, linux)   # linux-x64
-
-          open("Formula/port-daddy.rb", "w").write(formula)
-          PYEOF
+          python3 scripts/update_port_daddy_formula.py \
+            --formula "$FORMULA" \
+            --version "$VERSION" \
+            --arm64-sha256 "$ARM64" \
+            --linux-sha256 "$LINUX"
 
       - name: Update console cask
         if: steps.sha.outputs.console != ''

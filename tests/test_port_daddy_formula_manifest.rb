@@ -16,7 +16,7 @@ def manifest_hash(entries)
 end
 
 entries = PortDaddy.release_manifest_entries(RELEASE_ENTRIES + [".brew_home"])
-assert(PortDaddy.revision == 1, "service hotfix does not force a Homebrew upgrade")
+assert(PortDaddy.revision == 2, "service hotfix does not force a Homebrew upgrade")
 assert(entries == RELEASE_ENTRIES.sort, ".brew_home changed the release entry set")
 assert(
   manifest_hash(entries) == EXPECTED_MANIFEST_SHA256,
@@ -50,17 +50,17 @@ assert(
 )
 
 darwin_environment = PortDaddy.service_environment(
-  prefix:   "/opt/homebrew/opt/port-daddy",
+  prefix:   "/opt/homebrew/Cellar/port-daddy/3.30.2_2",
   platform: :darwin_arm64,
 )
 assert(
   darwin_environment[:PORT_DADDY_RESOURCE_DIR] ==
-    "/opt/homebrew/opt/port-daddy/share/port-daddy",
+    "/opt/homebrew/Cellar/port-daddy/3.30.2_2/share/port-daddy",
   "macOS service did not publish the packaged resource root",
 )
 assert(
   darwin_environment[:DYLD_FALLBACK_LIBRARY_PATH] ==
-    "/opt/homebrew/opt/port-daddy/bin/native/onnxruntime-node/darwin-arm64",
+    "/opt/homebrew/Cellar/port-daddy/3.30.2_2/bin/native/onnxruntime-node/darwin-arm64",
   "macOS service did not publish the packaged ONNX loader path",
 )
 assert(
@@ -69,12 +69,12 @@ assert(
 )
 
 linux_environment = PortDaddy.service_environment(
-  prefix:   "/home/linuxbrew/.linuxbrew/opt/port-daddy",
+  prefix:   "/home/linuxbrew/.linuxbrew/Cellar/port-daddy/3.30.2_2",
   platform: :linux_x64,
 )
 assert(
   linux_environment[:LD_LIBRARY_PATH] ==
-    "/home/linuxbrew/.linuxbrew/opt/port-daddy/bin/native/onnxruntime-node/linux-x64",
+    "/home/linuxbrew/.linuxbrew/Cellar/port-daddy/3.30.2_2/bin/native/onnxruntime-node/linux-x64",
   "Linux service did not publish the packaged ONNX loader path",
 )
 assert(
@@ -96,5 +96,28 @@ begin
 rescue ArgumentError => e
   assert(e.message.include?("unsupported"), "unsupported platform error was not actionable")
 end
+
+formula = PortDaddy.new(
+  "port-daddy",
+  Pathname.new(File.expand_path("../Formula/port-daddy.rb", __dir__)),
+  :stable,
+)
+rendered_environment = formula.service.to_hash.fetch(:environment_variables)
+expected_keg = PortDaddy.service_keg_prefix(cellar: HOMEBREW_CELLAR)
+assert(expected_keg == formula.prefix, "service keg helper diverges from Formula#prefix")
+assert(
+  rendered_environment[:PORT_DADDY_RESOURCE_DIR] == (expected_keg/"share/port-daddy").to_s,
+  "rendered service resource root is not bound to the versioned keg",
+)
+assert(
+  rendered_environment[:DYLD_FALLBACK_LIBRARY_PATH] ==
+    (expected_keg/"bin/native/onnxruntime-node/darwin-arm64").to_s,
+  "rendered service loader path is not bound to the versioned keg",
+)
+assert(
+  rendered_environment[:DYLD_FALLBACK_LIBRARY_PATH] !=
+    (formula.opt_prefix/"bin/native/onnxruntime-node/darwin-arm64").to_s,
+  "rendered service loader path regressed to the stable opt symlink",
+)
 
 puts "formula manifest tests PASS: release entries and semantic service environment fail closed"

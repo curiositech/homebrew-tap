@@ -5,6 +5,7 @@ class PortDaddy < Formula
   homepage "https://github.com/curiositech/port-daddy"
   version "3.30.2"
   license "MIT"
+  revision 2
 
   SYNTHETIC_HOMEBREW_ENTRIES = [".brew_home"].freeze
 
@@ -36,6 +37,14 @@ class PortDaddy < Formula
         prefix, "bin", "native", "onnxruntime-node", platform_arch
       ),
     }
+  end
+
+  # Return the versioned install root before the formula is installed. Service
+  # metadata is rendered for both installed and uninstalled formulae, so this
+  # cannot depend on resolving opt_prefix on disk.
+  def self.service_keg_prefix(cellar: HOMEBREW_CELLAR)
+    keg_version = revision.zero? ? version.to_s : "#{version}_#{revision}"
+    Pathname.new(cellar.to_s)/"port-daddy"/keg_version
   end
 
   on_macos do
@@ -184,7 +193,10 @@ class PortDaddy < Formula
     # process; set PORT_DADDY_JSC_SAFE_MODE=0 only for targeted local testing.
     service_platform = OS.mac? ? :darwin_arm64 : :linux_x64
     environment_variables(**PortDaddy.service_environment(
-      prefix:   opt_prefix,
+      # Homebrew normally delegates stable opt paths into service blocks. The
+      # compiled semantic runtime's native admission instead needs the concrete
+      # keg containing ONNX. The class helper remains renderable pre-install.
+      prefix:   PortDaddy.service_keg_prefix,
       platform: service_platform,
     ))
   end
