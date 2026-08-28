@@ -3,9 +3,8 @@ require "digest"
 class PortDaddy < Formula
   desc "Authoritative port manager for multi-agent development"
   homepage "https://github.com/curiositech/port-daddy"
-  version "3.30.2"
+  version "3.30.3"
   license "MIT"
-  revision 2
 
   SYNTHETIC_HOMEBREW_ENTRIES = [".brew_home"].freeze
 
@@ -43,21 +42,21 @@ class PortDaddy < Formula
   # metadata is rendered for both installed and uninstalled formulae, so this
   # cannot depend on resolving opt_prefix on disk.
   def self.service_keg_prefix(cellar: HOMEBREW_CELLAR)
-    keg_version = revision.zero? ? version.to_s : "#{version}_#{revision}"
+    keg_version = revision.nil? || revision.zero? ? version.to_s : "#{version}_#{revision}"
     Pathname.new(cellar.to_s)/"port-daddy"/keg_version
   end
 
   on_macos do
     on_arm do
       url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-darwin-arm64.tar.gz"
-      sha256 "5bd32f7055c5987df3407f2e38d0c30829da73c5c9e94bd0e79758f59fea9809"
+      sha256 "b3665ea6b56e4554bca728afc85320940dd2fbdb6f550ac97984497c603afc86"
     end
   end
 
   on_linux do
     on_intel do
       url "https://github.com/curiositech/port-daddy/releases/download/v#{version}/pd-linux-x64.tar.gz"
-      sha256 "e78e9be5dda05cf92f191f4c0cb42b70cbee8151044c5dd11edf73d8bce7eefe"
+      sha256 "04cb4564f2c04868b59615f2ee4217731557b04415860a4e83574b1d207fba3d"
     end
   end
 
