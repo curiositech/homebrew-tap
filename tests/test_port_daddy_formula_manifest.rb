@@ -16,10 +16,10 @@ def manifest_hash(entries)
 end
 
 entries = PortDaddy.release_manifest_entries(RELEASE_ENTRIES + [".brew_home"])
-assert(PortDaddy.version.to_s == "3.30.3", "formula did not target the published daemon release")
+assert(PortDaddy.version.to_s == "3.30.5", "formula did not target the published daemon release")
 assert(PortDaddy.revision.nil?, "upstream version promotion retained the old Homebrew revision")
 assert(
-  PortDaddy.service_keg_prefix(cellar: HOMEBREW_CELLAR).to_s.end_with?("/port-daddy/3.30.3"),
+  PortDaddy.service_keg_prefix(cellar: HOMEBREW_CELLAR).to_s.end_with?("/port-daddy/3.30.5"),
   "version promotion did not render the unrevisioned Homebrew keg path",
 )
 assert(entries == RELEASE_ENTRIES.sort, ".brew_home changed the release entry set")
@@ -55,17 +55,18 @@ assert(
 )
 
 darwin_environment = PortDaddy.service_environment(
-  prefix:   "/opt/homebrew/Cellar/port-daddy/3.30.3",
+  prefix:   "/opt/homebrew/Cellar/port-daddy/3.30.5",
   platform: :darwin_arm64,
+  home:     "/Users/port-daddy-test",
 )
 assert(
   darwin_environment[:PORT_DADDY_RESOURCE_DIR] ==
-    "/opt/homebrew/Cellar/port-daddy/3.30.3/share/port-daddy",
+    "/opt/homebrew/Cellar/port-daddy/3.30.5/share/port-daddy",
   "macOS service did not publish the packaged resource root",
 )
 assert(
   darwin_environment[:DYLD_FALLBACK_LIBRARY_PATH] ==
-    "/opt/homebrew/Cellar/port-daddy/3.30.3/bin/native/onnxruntime-node/darwin-arm64",
+    "/opt/homebrew/Cellar/port-daddy/3.30.5/bin/native/onnxruntime-node/darwin-arm64",
   "macOS service did not publish the packaged ONNX loader path",
 )
 assert(
@@ -74,12 +75,13 @@ assert(
 )
 
 linux_environment = PortDaddy.service_environment(
-  prefix:   "/home/linuxbrew/.linuxbrew/Cellar/port-daddy/3.30.3",
+  prefix:   "/home/linuxbrew/.linuxbrew/Cellar/port-daddy/3.30.5",
   platform: :linux_x64,
+  home:     "/home/port-daddy-test",
 )
 assert(
   linux_environment[:LD_LIBRARY_PATH] ==
-    "/home/linuxbrew/.linuxbrew/Cellar/port-daddy/3.30.3/bin/native/onnxruntime-node/linux-x64",
+    "/home/linuxbrew/.linuxbrew/Cellar/port-daddy/3.30.5/bin/native/onnxruntime-node/linux-x64",
   "Linux service did not publish the packaged ONNX loader path",
 )
 assert(
@@ -89,17 +91,35 @@ assert(
 assert(
   darwin_environment.values_at(
     :PORT_DADDY_NO_FLEET,
+    :PORT_DADDY_PLANE,
     :BUN_JSC_useConcurrentGC,
     :BUN_JSC_useConcurrentJIT,
-  ) == ["1", "0", "0"],
+  ) == %w[1 prod 0 0],
   "semantic launch variables regressed the existing safe-mode contract",
+)
+assert(
+  darwin_environment[:PORT_DADDY_DB] ==
+    "/Users/port-daddy-test/.port-daddy/port-registry.db",
+  "macOS service DB is not pinned to the durable login-user path",
+)
+assert(
+  linux_environment[:PORT_DADDY_DB] ==
+    "/home/port-daddy-test/.port-daddy/port-registry.db",
+  "Linux service DB is not pinned to the durable login-user path",
 )
 
 begin
-  PortDaddy.service_environment(prefix: "/opt/port-daddy", platform: :windows_x64)
+  PortDaddy.service_environment(prefix: "/opt/port-daddy", platform: :windows_x64, home: "/home/test")
   raise "unsupported service platform was accepted"
 rescue ArgumentError => e
   assert(e.message.include?("unsupported"), "unsupported platform error was not actionable")
+end
+
+begin
+  PortDaddy.service_environment(prefix: "/opt/port-daddy", platform: :darwin_arm64, home: "relative/home")
+  raise "relative service home was accepted"
+rescue ArgumentError => e
+  assert(e.message.include?("absolute"), "relative home error was not actionable")
 end
 
 formula = PortDaddy.new(
@@ -109,10 +129,22 @@ formula = PortDaddy.new(
 )
 rendered_environment = formula.service.to_hash.fetch(:environment_variables)
 expected_keg = PortDaddy.service_keg_prefix(cellar: HOMEBREW_CELLAR)
-assert(expected_keg == formula.prefix, "service keg helper diverges from Formula#prefix")
+assert(
+  expected_keg == Pathname.new(HOMEBREW_CELLAR)/"port-daddy/3.30.5",
+  "service keg helper did not resolve the exact current Cellar install root",
+)
 assert(
   rendered_environment[:PORT_DADDY_RESOURCE_DIR] == (expected_keg/"share/port-daddy").to_s,
   "rendered service resource root is not bound to the versioned keg",
+)
+assert(
+  rendered_environment[:PORT_DADDY_DB] ==
+    File.join(Etc.getpwuid(Process.euid).dir, ".port-daddy", "port-registry.db"),
+  "rendered service DB is not bound to the login user's durable home",
+)
+assert(
+  rendered_environment[:PORT_DADDY_PLANE] == "prod",
+  "rendered service did not declare the production plane",
 )
 assert(
   rendered_environment[:DYLD_FALLBACK_LIBRARY_PATH] ==

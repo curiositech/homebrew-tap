@@ -1,4 +1,5 @@
 require "digest"
+require "etc"
 
 class PortDaddy < Formula
   desc "Authoritative port manager for multi-agent development"
@@ -16,7 +17,7 @@ class PortDaddy < Formula
   # but dyld/the ELF loader must receive its search path when launchd/systemd
   # admits the daemon process. Keep this pure so tap CI can verify both shipped
   # platforms without booting a service.
-  def self.service_environment(prefix:, platform:)
+  def self.service_environment(prefix:, platform:, home:)
     platform_arch, loader_variable = case platform
     when :darwin_arm64
       ["darwin-arm64", :DYLD_FALLBACK_LIBRARY_PATH]
@@ -27,8 +28,15 @@ class PortDaddy < Formula
     end
 
     prefix = prefix.to_s
+    home = Pathname.new(home.to_s)
+    unless home.absolute?
+      raise ArgumentError, "Port Daddy service home must be an absolute path"
+    end
+
     {
       PORT_DADDY_NO_FLEET: "1",
+      PORT_DADDY_DB: (home/".port-daddy/port-registry.db").to_s,
+      PORT_DADDY_PLANE: "prod",
       PORT_DADDY_RESOURCE_DIR: File.join(prefix, "share", "port-daddy"),
       BUN_JSC_useConcurrentGC: "0",
       BUN_JSC_useConcurrentJIT: "0",
@@ -42,7 +50,7 @@ class PortDaddy < Formula
   # metadata is rendered for both installed and uninstalled formulae, so this
   # cannot depend on resolving opt_prefix on disk.
   def self.service_keg_prefix(cellar: HOMEBREW_CELLAR)
-    keg_version = revision.nil? || revision.zero? ? version.to_s : "#{version}_#{revision}"
+    keg_version = (revision.nil? || revision.zero?) ? version.to_s : "#{version}_#{revision}"
     Pathname.new(cellar.to_s)/"port-daddy"/keg_version
   end
 
@@ -177,15 +185,10 @@ class PortDaddy < Formula
     working_dir var/"port-daddy"
     log_path var/"log/port-daddy.log"
     error_log_path var/"log/port-daddy.log"
-    # v3.25.0 durable-home cutover (ADR-0090): the daemon defaults the
-    # registry to ~/.port-daddy/port-registry.db — a machine-durable home that
-    # survives brew upgrades AND is shared with the CLI/dev planes ("daemons
-    # must not own different truths"). Do NOT pin PORT_DADDY_DB here anymore:
-    # pinning it suppresses the daemon's boot-time legacy rescue
-    # (migrateLegacyRegistry only fires on the durable-home default) and
-    # strands the registry on a formula-owned path. The old var/ pin — the
-    # pre-3.25.0 hardening against the Cellar wipe — is superseded by the
-    # in-daemon durable-home default.
+    # Authority must not depend on a release keg, launchd working directory,
+    # shell HOME inheritance, or an ambient override. Pin the production plane
+    # and the login user's machine-durable registry explicitly. This path
+    # survives brew upgrades and cannot drift into the Cellar or a checkout.
     # Match install-daemon.ts safe-mode defaults for the Bun 1.2.21 JSC native
     # crash family seen under production-shaped daemon load. This trades some
     # throughput for removing concurrent GC/JIT from the always-on control-plane
@@ -197,6 +200,7 @@ class PortDaddy < Formula
       # keg containing ONNX. The class helper remains renderable pre-install.
       prefix:   PortDaddy.service_keg_prefix,
       platform: service_platform,
+      home:     Etc.getpwuid(Process.euid).dir,
     ))
   end
 
